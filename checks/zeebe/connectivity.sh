@@ -1,17 +1,27 @@
 #!/bin/bash
 
+set -o pipefail
+
 # Script to verify zeebe connectivity
+SCRIPT_NAME=$(basename "$0")
+DIR_NAME=$(dirname "$0")
+LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Define default variables
 ZEEBE_HOST=""
-ZEEBE_PORT=""
+ZEEBE_PORT="443"
 PROTO_FILE=""
 SKIP_TLS_VERIFICATION=""
 EXTRA_FLAGS_CURL=""
 EXTRA_FLAGS_GRPCURL=""
+EXTRA_FLAGS_ZBCTL=""
+EXTRA_FLAGS_TOKEN=""
 CACERT=""
 CLIENTCERT=""
-AUTH_TOKEN=""
+ZEEBE_AUTHORIZATION_SERVER_URL=""
+ZEEBE_CLIENT_ID=""
+ZEEBE_CLIENT_SECRET=""
+ZEEBE_TOKEN_AUDIENCE=""
 
 # Function to display script usage
 usage() {
@@ -21,15 +31,19 @@ usage() {
     echo "  -H ZEEBE_HOST          Specify the Zeebe host (e.g., zeebe.c8.camunda.langleu.de)"
     echo "  -p ZEEBE_PORT          Specify the Zeebe port (default: 443)"
     echo "  -f PROTO_FILE          Specify the path to gateway.proto file or leave empty to download it"
-    echo "  -t AUTH_TOKEN          Specify the auth token to use (optional)"
     echo "  -k                     Skip TLS verification (insecure mode)"
-    echo "  -ca CACERT             Specify the path to CA certificate file"
-    echo "  -cc CLIENTCERT         Specify the path to Client certificate file"
+    echo "  -r CACERT              Specify the path to CA certificate file"
+    echo "  -j CLIENTCERT          Specify the path to Client certificate file"
+    echo "  -a AUTH_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
+oken)"
+    echo "  -i CLIENT_ID           Specify the client ID"
+    echo "  -s CLIENT_SECRET       Specify the client secret"
+    echo "  -u TOKEN_AUDIENCE      Specify the token audience"
     exit 1
 }
 
 # Parse command line options
-while getopts ":hH:p:f:k" opt; do
+while getopts ":hH:p:f:k:r:j:a:i:s:u:" opt; do
     case ${opt} in
         h)
             usage
@@ -45,12 +59,24 @@ while getopts ":hH:p:f:k" opt; do
             ;;
         k)
             SKIP_TLS_VERIFICATION=true
-            ;;
-        ca)
+            ;;        
+        r)
             CACERT="$OPTARG"
             ;;
-        cc)
+        j)
             CLIENTCERT="$OPTARG"
+            ;;
+        a)
+            ZEEBE_AUTHORIZATION_SERVER_URL=$OPTARG
+            ;;
+        i)
+            ZEEBE_CLIENT_ID=$OPTARG
+            ;;
+        s)
+            ZEEBE_CLIENT_SECRET=$OPTARG
+            ;;
+        u)
+            ZEEBE_TOKEN_AUDIENCE=$OPTARG
             ;;
         \?)
             echo "Invalid option: $OPTARG" 1>&2
@@ -63,29 +89,56 @@ while getopts ":hH:p:f:k" opt; do
     esac
 done
 
+SCRIPT_STATUS_OUTPUT=0
+
 # Check if Zeebe host is provided, if not, prompt user
 if [ -z "$ZEEBE_HOST" ]; then
-    read -p "Enter Zeebe host: " ZEEBE_HOST
+    read -pr "Enter Zeebe host: " ZEEBE_HOST
 fi
 
 # Check if Zeebe port is provided, if not, use default value
 if [ -z "$ZEEBE_PORT" ]; then
-    read -p "Enter Zeebe port: " ZEEBE_PORT
+    read -pr "Enter Zeebe port: " ZEEBE_PORT
 fi
 
 if [ "$SKIP_TLS_VERIFICATION" = true ]; then
     EXTRA_FLAGS_CURL="-k"
     EXTRA_FLAGS_GRPCURL="-insecure"
+    EXTRA_FLAGS_ZBCTL="-insecure"
+    EXTRA_FLAGS_TOKEN="-k"
 fi
 
 if [ -n "${CACERT}" ]; then
     EXTRA_FLAGS_CURL+=" -cacert ${CACERT} "
     EXTRA_FLAGS_GRPCURL+="-cacert ${CACERT}"
+    EXTRA_FLAGS_ZBCTL+=" --certPath ${CACERT} "
+    EXTRA_FLAGS_TOKEN+=" -p ${CACERT} "
 fi
 
 if [ -n "${CLIENTCERT}" ]; then
     EXTRA_FLAGS_CURL+=" -cert ${CLIENTCERT} "
     EXTRA_FLAGS_GRPCURL+=" -cert ${CLIENTCERT} "
+    EXTRA_FLAGS_TOKEN+=" -j ${CLIENTCERT} "
+fi
+
+# Check if token is needed
+if [ -n "${ZEEBE_AUTHORIZATION_SERVER_URL}" ] || [ -n "${ZEEBE_CLIENT_ID}" ] || [ -n "${ZEEBE_CLIENT_SECRET}" ] || [ -n "${ZEEBE_TOKEN_AUDIENCE}" ]; then
+    token_command="${DIR_NAME}/token.sh -a \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" -i \"${ZEEBE_CLIENT_ID}\" -s \"${ZEEBE_CLIENT_SECRET}\" -u \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_TOKEN}"
+    token_output=$(eval "${token_command}")
+    access_token=$(echo "$token_output" | sed -n 's/.*Access Token: \(.*\)/\1/p')
+
+    if [ -n "$access_token" ]; then
+        AUTH_TOKEN="${BASH_REMATCH[1]}"
+        echo "[OK] Auth token successfuly generated"
+    else
+        echo "[KO] Failed to generate access token: $token_output." 1>&2
+        SCRIPT_STATUS_OUTPUT=2
+    fi
+fi
+
+if [ -n "${AUTH_TOKEN}" ]; then
+    EXTRA_FLAGS_CURL+=" -H 'Authorization: Bearer ${AUTH_TOKEN}' "
+    EXTRA_FLAGS_GRPCURL+=" -H 'Authorization: Bearer ${AUTH_TOKEN}' "
 fi
 
 # Check if grpcurl is installed
@@ -100,8 +153,38 @@ fi
 
 # Check HTTP/2 connectivity
 echo "Checking HTTP/2 connectivity to $ZEEBE_HOST:$ZEEBE_PORT"
-curl -v --http2 $EXTRA_FLAGS_CURL https://$ZEEBE_HOST:$ZEEBE_PORT >/dev/null 2>&1 && echo "[OK] HTTP/2 connectivity" || echo "[KO] HTTP/2 connectivity"
+curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST:$ZEEBE_PORT\""
+if eval "${curl_command}"; then
+    echo "[OK] HTTP/2 connectivity"
+else
+    echo "[KO] HTTP/2 connectivity" 1>&2
+    SCRIPT_STATUS_OUTPUT=3
+fi
 
 # Check gRPC connectivity using grpcurl
 echo "Checking gRPC connectivity to $ZEEBE_HOST:$ZEEBE_PORT"
-grpcurl -proto $PROTO_FILE $EXTRA_FLAGS_GRPCURL $ZEEBE_HOST:$ZEEBE_PORT gateway_protocol.Gateway/Topology >/dev/null 2>&1 && echo "[OK] gRPC connectivity" || echo "[KO] gRPC connectivity"
+grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}:${ZEEBE_PORT}\" gateway_protocol.Gateway/Topology"
+if eval "${grcp_curl_command}"; then
+    echo "[OK] gRPC connectivity"
+else
+    echo "[KO] gRPC connectivity" 1>&2
+    SCRIPT_STATUS_OUTPUT=4
+fi
+
+# Check zbctl status
+echo "Checking zbctl status to $ZEEBE_HOST:$ZEEBE_PORT..."
+zbctl_command="zbctl status --address \"${ZEEBE_HOST}:${ZEEBE_PORT}\""
+if eval "${zbctl_command}"; then
+    echo "[OK] zbctl status"
+else
+    echo "[KO] zbctl status" 1>&2
+    SCRIPT_STATUS_OUTPUT=5
+fi
+
+# Check if SCRIPT_STATUS_OUTPUT is not equal to zero
+if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
+    echo "[KO] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
+    exit $SCRIPT_STATUS_OUTPUT
+else
+    echo "[OK] ${LVL_1_SCRIPT_NAME}: All test passed."
+fi
