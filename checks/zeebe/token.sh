@@ -91,6 +91,9 @@ if [ -n "${CLIENTCERT}" ]; then
     EXTRA_FLAGS_CURL+=" -cert ${CLIENTCERT} "
 fi
 
+# pre-check requirements
+command -v curl >/dev/null 2>&1 || { echo >&2 "Error: curl is required but not installed. Please install it. Aborting."; exit 1; }
+
 
 curl_command="curl -f -d \"client_id=${ZEEBE_CLIENT_ID}\" -d \"client_secret=${ZEEBE_CLIENT_SECRET}\" -d \"grant_type=client_credentials\" \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" ${EXTRA_FLAGS_CURL}"
 

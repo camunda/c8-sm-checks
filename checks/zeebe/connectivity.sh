@@ -27,12 +27,12 @@ usage() {
     echo "Usage: $0 [-h] [-H ZEEBE_HOST]"
     echo "Options:"
     echo "  -h                     Display this help message"
-    echo "  -H ZEEBE_HOST          Specify the Zeebe host (e.g., zeebe.c8.camunda.langleu.de)"
+    echo "  -H ZEEBE_HOST          Specify the Zeebe host with the port (e.g., zeebe.c8.camunda.example.com:443)"
     echo "  -f PROTO_FILE          Specify the path to gateway.proto file or leave empty to download it"
     echo "  -k                     Skip TLS verification (insecure mode)"
     echo "  -r CACERT              Specify the path to CA certificate file"
     echo "  -j CLIENTCERT          Specify the path to Client certificate file"
-    echo "  -a AUTH_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
+    echo "  -a AUTH_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/t
 oken)"
     echo "  -i CLIENT_ID           Specify the client ID"
     echo "  -s CLIENT_SECRET       Specify the client secret"
@@ -88,8 +88,18 @@ SCRIPT_STATUS_OUTPUT=0
 
 # Check if Zeebe host is provided, if not, prompt user
 if [ -z "$ZEEBE_HOST" ]; then
-    read -r -p "Enter Zeebe host: " ZEEBE_HOST
+    read -r -p "Enter Zeebe host with the port (format: host:port): " ZEEBE_HOST
 fi
+# Extract host and port from ZEEBE_HOST
+if ! [[ $ZEEBE_HOST =~ ^[^:]+:[0-9]+$ ]]; then
+    echo "Error: Invalid format ZEEBE_HOST=$ZEEBE_HOST. Please provide host and port. Aborting." >&2
+    exit 1
+fi
+
+# pre-check requirements
+command -v curl >/dev/null 2>&1 || { echo >&2 "Error: curl is required but not installed. Please install it. Aborting."; exit 1; }
+command -v grpcurl >/dev/null 2>&1 || { echo >&2 "Error: grpcurl is required but not installed. Please install it (https://github.com/fullstorydev/grpcurl?tab=readme-ov-file#installation). Aborting."; exit 1; }
+command -v zbctl >/dev/null 2>&1 || { echo >&2 "Error: zbctl is required but not installed. Please install it (https://docs.camunda.io/docs/apis-tools/cli-client/). Aborting."; exit 1; }
 
 if [ "$SKIP_TLS_VERIFICATION" = true ]; then
     EXTRA_FLAGS_CURL="-k"
@@ -130,9 +140,6 @@ if [ -n "${AUTH_TOKEN}" ]; then
     EXTRA_FLAGS_CURL+=" -H 'Authorization: Bearer ${AUTH_TOKEN}' "
     EXTRA_FLAGS_GRPCURL+=" -H 'Authorization: Bearer ${AUTH_TOKEN}' "
 fi
-
-# Check if grpcurl is installed
-command -v grpcurl >/dev/null 2>&1 || { echo >&2 "grpcurl is required but not installed. Please install it (https://github.com/fullstorydev/grpcurl?tab=readme-ov-file#installation). Aborting."; exit 1; }
 
 # Check if proto file path is provided, if not, download it
 if [ -z "$PROTO_FILE" ]; then

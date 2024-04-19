@@ -37,23 +37,23 @@ This script retrieves an access token from an authorization server using client 
 
 ##### Usage:
 ```bash
-./checks/zeebe/token.sh [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE] [-k] [-r CACERT] [-j CLIENTCERT]
+Usage: ./checks/zeebe/token.sh [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]
+Options:
+  -h                          Display this help message
+  -a AUTH_SERVER_URL          Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
+oken)
+  -i CLIENT_ID                Specify the client ID
+  -s CLIENT_SECRET            Specify the client secret
+  -u TOKEN_AUDIENCE           Specify the token audience
+  -k                          Skip TLS verification (insecure mode)
+  -r CACERT                   Specify the path to CA certificate file
+  -j CLIENTCERT               Specify the path to client certificate file
 ```
 
 ##### Example:
 ```bash
 ./token.sh -a https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/token -i debug -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.ultrawombat.com -u zeebe.local.distro.ultrawombat.com
 ```
-
-##### Options:
-- `-h`: Display help message.
-- `-a AUTH_SERVER_URL`: Specify the authorization server URL.
-- `-i CLIENT_ID`: Specify the client ID.
-- `-s CLIENT_SECRET`: Specify the client secret.
-- `-u TOKEN_AUDIENCE`: Specify the token audience.
-- `-k`: Skip TLS verification (insecure mode).
-- `-r CACERT`: Specify the path to the CA certificate file.
-- `-j CLIENTCERT`: Specify the path to the client certificate file.
 
 ##### Dependencies:
 - `curl`: Required for making HTTP requests.
@@ -65,26 +65,25 @@ This script verifies connectivity to a Zeebe instance using HTTP/2 and gRPC prot
 
 ##### Usage:
 ```bash
-./connectivity.sh [-h] [-H ZEEBE_HOST] [-p ZEEBE_PORT] [-f PROTO_FILE] [-k] [-r CACERT] [-j CLIENTCERT] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]
+Usage: ./checks/zeebe/connectivity.sh [-h] [-H ZEEBE_HOST]
+Options:
+  -h                     Display this help message
+  -H ZEEBE_HOST          Specify the Zeebe host (e.g., zeebe.c8.camunda.example.com)
+  -f PROTO_FILE          Specify the path to gateway.proto file or leave empty to download it
+  -k                     Skip TLS verification (insecure mode)
+  -r CACERT              Specify the path to CA certificate file
+  -j CLIENTCERT          Specify the path to Client certificate file
+  -a AUTH_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/t
+oken)
+  -i CLIENT_ID           Specify the client ID
+  -s CLIENT_SECRET       Specify the client secret
+  -u TOKEN_AUDIENCE      Specify the token audience
 ```
 
 ##### Example:
 ```bash
 ./checks/zeebe/connectivity.sh -a https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/token -i debug -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.ultrawombat.com -H zeebe.local.distro.ultrawombat.com
 ```
-
-##### Options:
-- `-h`: Display help message.
-- `-H ZEEBE_HOST`: Specify the Zeebe host.
-- `-p ZEEBE_PORT`: Specify the Zeebe port (default: 443).
-- `-f PROTO_FILE`: Specify the path to the gateway.proto file or leave empty to download it.
-- `-k`: Skip TLS verification (insecure mode).
-- `-r CACERT`: Specify the path to the CA certificate file.
-- `-j CLIENTCERT`: Specify the path to the client certificate file.
-- `-a AUTH_SERVER_URL`: Specify the authorization server URL.
-- `-i CLIENT_ID`: Specify the client ID.
-- `-s CLIENT_SECRET`: Specify the client secret.
-- `-u TOKEN_AUDIENCE`: Specify the token audience.
 
 ### Dependencies:
 - `curl`: Required for making HTTP requests.
