@@ -52,7 +52,7 @@ oken)
 
 ##### Example:
 ```bash
-./token.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.example.com -u zeebe.local.distro.example.com
+./checks/zeebe/token.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.example.com -u zeebe.local.distro.example.com
 ```
 
 ##### Dependencies:
