@@ -9,7 +9,6 @@ LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Define default variables
 ZEEBE_HOST=""
-ZEEBE_PORT="443"
 PROTO_FILE=""
 SKIP_TLS_VERIFICATION=""
 EXTRA_FLAGS_CURL=""
@@ -25,11 +24,10 @@ ZEEBE_TOKEN_AUDIENCE=""
 
 # Function to display script usage
 usage() {
-    echo "Usage: $0 [-h] [-H ZEEBE_HOST] [-p ZEEBE_PORT]"
+    echo "Usage: $0 [-h] [-H ZEEBE_HOST]"
     echo "Options:"
     echo "  -h                     Display this help message"
     echo "  -H ZEEBE_HOST          Specify the Zeebe host (e.g., zeebe.c8.camunda.langleu.de)"
-    echo "  -p ZEEBE_PORT          Specify the Zeebe port (default: 443)"
     echo "  -f PROTO_FILE          Specify the path to gateway.proto file or leave empty to download it"
     echo "  -k                     Skip TLS verification (insecure mode)"
     echo "  -r CACERT              Specify the path to CA certificate file"
@@ -43,16 +41,13 @@ oken)"
 }
 
 # Parse command line options
-while getopts ":hH:p:f:k:r:j:a:i:s:u:" opt; do
+while getopts ":hH:f:k:r:j:a:i:s:u:" opt; do
     case ${opt} in
         h)
             usage
             ;;
         H)
             ZEEBE_HOST=$OPTARG
-            ;;
-        p)
-            ZEEBE_PORT=$OPTARG
             ;;
         f)
             PROTO_FILE=$OPTARG
@@ -93,12 +88,7 @@ SCRIPT_STATUS_OUTPUT=0
 
 # Check if Zeebe host is provided, if not, prompt user
 if [ -z "$ZEEBE_HOST" ]; then
-    read -pr "Enter Zeebe host: " ZEEBE_HOST
-fi
-
-# Check if Zeebe port is provided, if not, use default value
-if [ -z "$ZEEBE_PORT" ]; then
-    read -pr "Enter Zeebe port: " ZEEBE_PORT
+    read -r -p "Enter Zeebe host: " ZEEBE_HOST
 fi
 
 if [ "$SKIP_TLS_VERIFICATION" = true ]; then
@@ -152,8 +142,8 @@ if [ -z "$PROTO_FILE" ]; then
 fi
 
 # Check HTTP/2 connectivity
-echo "Checking HTTP/2 connectivity to $ZEEBE_HOST:$ZEEBE_PORT"
-curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST:$ZEEBE_PORT\""
+echo "Checking HTTP/2 connectivity to $ZEEBE_HOST"
+curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST\""
 if eval "${curl_command}"; then
     echo "[OK] HTTP/2 connectivity"
 else
@@ -162,8 +152,8 @@ else
 fi
 
 # Check gRPC connectivity using grpcurl
-echo "Checking gRPC connectivity to $ZEEBE_HOST:$ZEEBE_PORT"
-grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}:${ZEEBE_PORT}\" gateway_protocol.Gateway/Topology"
+echo "Checking gRPC connectivity to $ZEEBE_HOST"
+grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}\" gateway_protocol.Gateway/Topology"
 if eval "${grcp_curl_command}"; then
     echo "[OK] gRPC connectivity"
 else
@@ -172,8 +162,8 @@ else
 fi
 
 # Check zbctl status
-echo "Checking zbctl status to $ZEEBE_HOST:$ZEEBE_PORT..."
-zbctl_command="zbctl status --address \"${ZEEBE_HOST}:${ZEEBE_PORT}\""
+echo "Checking zbctl status to $ZEEBE_HOST..."
+zbctl_command="zbctl status --address \"${ZEEBE_HOST}\""
 if eval "${zbctl_command}"; then
     echo "[OK] zbctl status"
 else

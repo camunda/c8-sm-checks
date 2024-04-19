@@ -112,6 +112,7 @@ if [ -z "$access_token_response" ]; then
 fi
 
 # extract the token
+  # shellcheck disable=SC2001
 token=$(echo "$access_token_response" | sed 's/.*access_token":"\([^"]*\)".*/\1/')
 if [ -z "$token" ]; then
     echo "[KO] Failed to extract access token." 1>&2
