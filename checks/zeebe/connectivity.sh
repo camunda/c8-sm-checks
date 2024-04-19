@@ -21,6 +21,7 @@ ZEEBE_AUTHORIZATION_SERVER_URL=""
 ZEEBE_CLIENT_ID=""
 ZEEBE_CLIENT_SECRET=""
 ZEEBE_TOKEN_AUDIENCE=""
+ZEEBE_TOKEN_SCOPE="camunda-identity"
 
 # Function to display script usage
 usage() {
@@ -174,7 +175,7 @@ fi
 
 # Check zbctl status
 echo "Checking zbctl status to $ZEEBE_HOST..."
-zbctl_command="zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
+zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE}  zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
 if eval "${zbctl_command}"; then
     echo "[OK] zbctl status"
 else
