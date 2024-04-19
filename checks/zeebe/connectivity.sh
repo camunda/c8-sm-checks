@@ -41,7 +41,7 @@ oken)"
 }
 
 # Parse command line options
-while getopts ":hH:f:k:r:j:a:i:s:u:" opt; do
+while getopts ":hH:f:kr:j:a:i:s:u:" opt; do
     case ${opt} in
         h)
             usage
