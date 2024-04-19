@@ -86,10 +86,12 @@ done
 
 SCRIPT_STATUS_OUTPUT=0
 
-# Check if Zeebe host is provided, if not, prompt user
+# Check if all required options are provided
 if [ -z "$ZEEBE_HOST" ]; then
-    read -r -p "Enter Zeebe host with the port (format: host:port): " ZEEBE_HOST
+    echo "Error: Missing required options (ZEEBE_HOST)." 1>&2
+    usage
 fi
+
 # Extract host and port from ZEEBE_HOST
 if ! [[ $ZEEBE_HOST =~ ^[^:]+:[0-9]+$ ]]; then
     echo "Error: Invalid format ZEEBE_HOST=$ZEEBE_HOST. Please provide host and port. Aborting." >&2
