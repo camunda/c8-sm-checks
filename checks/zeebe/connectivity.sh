@@ -106,31 +106,32 @@ command -v zbctl >/dev/null 2>&1 || { echo >&2 "Error: zbctl is required but not
 if [ "$SKIP_TLS_VERIFICATION" = true ]; then
     EXTRA_FLAGS_CURL="-k"
     EXTRA_FLAGS_GRPCURL="-insecure"
-    EXTRA_FLAGS_ZBCTL="-insecure"
+    EXTRA_FLAGS_ZBCTL="--insecure"
     EXTRA_FLAGS_TOKEN="-k"
 fi
 
 if [ -n "${CACERT}" ]; then
-    EXTRA_FLAGS_CURL+=" -cacert ${CACERT} "
-    EXTRA_FLAGS_GRPCURL+="-cacert ${CACERT}"
-    EXTRA_FLAGS_ZBCTL+=" --certPath ${CACERT} "
-    EXTRA_FLAGS_TOKEN+=" -p ${CACERT} "
+    EXTRA_FLAGS_CURL+=" -cacert \"${CACERT}\" "
+    EXTRA_FLAGS_GRPCURL+=" -cacert \"${CACERT}\" "
+    EXTRA_FLAGS_ZBCTL+=" --authority \"${CACERT}\" "
+    EXTRA_FLAGS_TOKEN+=" -p \"${CACERT}\" "
 fi
 
 if [ -n "${CLIENTCERT}" ]; then
-    EXTRA_FLAGS_CURL+=" -cert ${CLIENTCERT} "
-    EXTRA_FLAGS_GRPCURL+=" -cert ${CLIENTCERT} "
-    EXTRA_FLAGS_TOKEN+=" -j ${CLIENTCERT} "
+    EXTRA_FLAGS_CURL+=" -cert \"${CLIENTCERT}\" "
+    EXTRA_FLAGS_GRPCURL+=" -cert \"${CLIENTCERT}\" "
+    EXTRA_FLAGS_ZBCTL+=" --certPath \"${CLIENTCERT}\" "
+    EXTRA_FLAGS_TOKEN+=" -j \"${CLIENTCERT}\" "
 fi
 
 # Check if token is needed
+access_token=""
 if [ -n "${ZEEBE_AUTHORIZATION_SERVER_URL}" ] || [ -n "${ZEEBE_CLIENT_ID}" ] || [ -n "${ZEEBE_CLIENT_SECRET}" ] || [ -n "${ZEEBE_TOKEN_AUDIENCE}" ]; then
     token_command="${DIR_NAME}/token.sh -a \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" -i \"${ZEEBE_CLIENT_ID}\" -s \"${ZEEBE_CLIENT_SECRET}\" -u \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_TOKEN}"
     token_output=$(eval "${token_command}")
     access_token=$(echo "$token_output" | sed -n 's/.*Access Token: \(.*\)/\1/p')
 
     if [ -n "$access_token" ]; then
-        AUTH_TOKEN="${BASH_REMATCH[1]}"
         echo "[OK] Auth token successfuly generated"
     else
         echo "[KO] Failed to generate access token: $token_output." 1>&2
@@ -138,10 +139,11 @@ if [ -n "${ZEEBE_AUTHORIZATION_SERVER_URL}" ] || [ -n "${ZEEBE_CLIENT_ID}" ] || 
     fi
 fi
 
-if [ -n "${AUTH_TOKEN}" ]; then
-    EXTRA_FLAGS_CURL+=" -H 'Authorization: Bearer ${AUTH_TOKEN}' "
-    EXTRA_FLAGS_GRPCURL+=" -H 'Authorization: Bearer ${AUTH_TOKEN}' "
+if [ -n "${access_token}" ]; then
+    EXTRA_FLAGS_CURL+=" -H 'Authorization: Bearer ${access_token}' "
+    EXTRA_FLAGS_GRPCURL+=" -H 'Authorization: Bearer ${access_token}' "
 fi
+
 
 # Check if proto file path is provided, if not, download it
 if [ -z "$PROTO_FILE" ]; then
@@ -172,7 +174,7 @@ fi
 
 # Check zbctl status
 echo "Checking zbctl status to $ZEEBE_HOST..."
-zbctl_command="zbctl status --address \"${ZEEBE_HOST}\""
+zbctl_command="zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
 if eval "${zbctl_command}"; then
     echo "[OK] zbctl status"
 else
