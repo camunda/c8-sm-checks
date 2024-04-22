@@ -1,25 +1,36 @@
 #!/bin/bash
 
+set -o pipefail
+
+# Script to check the status of the deployment
+SCRIPT_NAME=$(basename "$0")
+DIR_NAME=$(dirname "$0")
+LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
+
 # Define default variables
 NAMESPACE=""
+SKIP_CHECK_INGRESS_CLASS=0
 
-# Function to display script usage
 usage() {
-    echo "Usage: $0 [-h] [-n NAMESPACE]"
+    echo "Usage: $0 [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]"
     echo "Options:"
-    echo "  -h                     Display this help message"
-    echo "  -n NAMESPACE           Specify the namespace to check"
+    echo "  -h                              Display this help message"
+    echo "  -n NAMESPACE                    Specify the namespace to use"
+    echo "  -i SKIP_CHECK_INGRESS_CLASS     Skip checks of the ingress class (default: 0)"
     exit 1
 }
 
 # Parse command line options
-while getopts ":hn:" opt; do
+while getopts ":hd:n:c:" opt; do
     case ${opt} in
         h)
             usage
             ;;
         n)
             NAMESPACE=$OPTARG
+            ;;
+        i)
+            SKIP_CHECK_INGRESS_CLASS=1
             ;;
         \?)
             echo "Invalid option: $OPTARG" 1>&2
@@ -32,44 +43,82 @@ while getopts ":hn:" opt; do
     esac
 done
 
-# Check if namespace is provided
+SCRIPT_STATUS_OUTPUT=0
+
+# Check if all required options are provided
 if [ -z "$NAMESPACE" ]; then
-    echo "Error: Namespace is not provided." 1>&2
+    echo "Error: Missing required options (NAMESPACE)." 1>&2
     usage
 fi
 
-# Check if kubectl is installed
-command -v kubectl >/dev/null 2>&1 || { echo >&2 "kubectl is required but not installed. Aborting."; exit 1; }
+# required commands
+command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but not installed. Please install it (https://kubernetes.io/docs/tasks/tools/). Aborting."; exit 1; }
 
-# Function to check if a service exists in the namespace with specified labels
-check_service() {
-    local service_name="$1"
-    local label_selector="$2"
 
-    if kubectl get service -n "$NAMESPACE" "$service_name" -o jsonpath='{.metadata.labels}' | grep -q "$label_selector"; then
-        echo "Service $service_name with labels $label_selector: Found"
-    else
-        echo "Service $service_name with labels $label_selector: Not Found"
+# check if all services can be resolved in pods with curl in the pod
+check_services_resolution() {
+    local pods=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+
+    local services=$(kubectl get services -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+
+    # for each pod, we check if all the services can be resolved
+    for pod in $pods; do
+
+        if ! kubectl exec -n "$NAMESPACE" "$pod" -- curl --version &>/dev/null; then
+            echo "Warning: curl is not available in pod $pod. Skipping service resolution check for this pod." >&2
+            continue
+        fi
+
+        for service in $services; do
+            local curl_output=$(kubectl exec -n "$NAMESPACE" "$pod" -- curl -s -v --max-time 1 "$service" 2>&1)
+
+            # Check if the output contains "Trying ip:port" (IPv4 or IPv6)
+            if echo "$curl_output" | grep -Eq "Trying ([0-9.]*|\[[0-9a-fA-F:]*\]):[0-9]*"; then
+                echo "[OK] Service $service resolved successfully from pod $pod in namespace $NAMESPACE: $curl_output"
+            else
+                echo "[KO] Service $service resolution failed from pod $pod in namespace $NAMESPACE: $curl_output" >&2
+                SCRIPT_STATUS_OUTPUT=2
+            fi
+        done
+    done
+}
+check_services_resolution
+
+check_ingress_class_and_config() {
+    annotation_found=0
+
+    ingress_list=$(kubectl get ingress -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+
+    # check each ingress listed
+    for ingress_name in $ingress_list; do
+        ingress_class=$(kubectl get ingress -n "$NAMESPACE" "$ingress_name" -o jsonpath='{.spec.ingressClassName}')
+
+        if [ "$ingress_class" != "nginx" ]; then
+            echo "[KO] Ingress class is not nginx for $ingress_name. Actual class: $ingress_class." >&2
+            echo "If you configured it on purpose, please the SKIP_CHECK_INGRESS_CLASS option." >&2
+            SCRIPT_STATUS_OUTPUT=3
+        else
+            echo "[OK] Ingress class for $ingress_name is configured correctly with $ingress_class."
+        fi
+
+        if kubectl get ingress -n "$NAMESPACE" "$ingress_name" -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol}' | grep -q "GRPC"; then
+            annotation_found=1
+        fi
+    done
+
+    if [ "$annotation_found" -eq 0 ]; then
+        echo "[KO] None of the ingresses contain the annotation nginx.ingress.kubernetes.io/backend-protocol: GRPC, which is required for zeebe ingress." >&2
+        SCRIPT_STATUS_OUTPUT=5
     fi
 }
+if [ "$SKIP_CHECK_INGRESS_CLASS" -eq 0 ]; then
+    check_ingress_class_and_config
+fi
 
-# Function to check if an ingress exists in the namespace with specified annotations
-check_ingress() {
-    local ingress_name="$1"
-    local annotations="$2"
-
-    if kubectl get ingress -n "$NAMESPACE" "$ingress_name" -o jsonpath='{.metadata.annotations}' | grep -q "$annotations"; then
-        echo "Ingress $ingress_name with annotations $annotations: Found"
-    else
-        echo "Ingress $ingress_name with annotations $annotations: Not Found"
-    fi
-}
-
-# Check services
-check_service "identity" "app.kubernetes.io/component=identity,app.kubernetes.io/instance=camunda-platform,app.kubernetes.io/part-of=camunda-platform"
-check_service "zeebe" "app.kubernetes.io/component=zeebe,app.kubernetes.io/instance=camunda-platform,app.kubernetes.io/part-of=camunda-platform"
-check_service "zeebe-gateway" "app.kubernetes.io/component=zeebe-gateway,app.kubernetes.io/instance=camunda-platform,app.kubernetes.io/part-of=camunda-platform"
-
-# Check ingresses
-check_ingress "camunda-ingress" "nginx.ingress.kubernetes.io/ingress.class: nginx"
-check_ingress "zeebe-gateway-ingress" "nginx.ingress.kubernetes.io/ingress.class: nginx,nginx.ingress.kubernetes.io/backend-protocol: GRPC,nginx.ingress.kubernetes.io/http2-enable: \"true\""
+# Check if SCRIPT_STATUS_OUTPUT is not equal to zero
+if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
+    echo "[KO] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
+    exit $SCRIPT_STATUS_OUTPUT
+else
+    echo "[OK] ${LVL_1_SCRIPT_NAME}: All test passed."
+fi
