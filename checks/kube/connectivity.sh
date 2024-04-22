@@ -16,7 +16,7 @@ usage() {
     echo "Options:"
     echo "  -h                              Display this help message"
     echo "  -n NAMESPACE                    Specify the namespace to use"
-    echo "  -i SKIP_CHECK_INGRESS_CLASS     Skip checks of the ingress class (default: 0)"
+    echo "  -i                              Skip checks of the ingress class (default: $SKIP_CHECK_INGRESS_CLASS)"
     exit 1
 }
 
@@ -57,6 +57,8 @@ command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but
 
 # check if all services can be resolved in pods with curl in the pod
 check_services_resolution() {
+    echo "Check services can be resolved in the pods"
+
     local pods=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
 
     local services=$(kubectl get services -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
@@ -85,6 +87,8 @@ check_services_resolution() {
 check_services_resolution
 
 check_ingress_class_and_config() {
+    echo "Check ingress and associated configuration"
+
     annotation_found=0
 
     ingress_list=$(kubectl get ingress -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')

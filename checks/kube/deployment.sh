@@ -18,9 +18,9 @@ usage() {
     echo "Options:"
     echo "  -h                              Display this help message"
     echo "  -n NAMESPACE                    Specify the namespace to use"
-    echo "  -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: camunda)"
-    echo "  -l SKIP_CHECK_HELM_DEPLOYMENT   Skip checks of the helm deployment (default: 0)"
-    echo "  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated)"
+    echo "  -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: $HELM_DEPLOYMENT_NAME)"
+    echo "  -l                              Skip checks of the helm deployment (default: $SKIP_CHECK_HELM_DEPLOYMENT)"
+    echo "  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated, default: ${REQUIRED_CONTAINERS[@]})"
     exit 1
 }
 
@@ -67,6 +67,8 @@ command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but
 
 # Helm checks of the deployment
 check_helm_deployment() {
+    echo "Check status of the last helm deployment"
+
     local last_deployment
     last_deployment=$(helm list -n "$NAMESPACE" | grep "$HELM_DEPLOYMENT_NAME" | head -n 1)
 
@@ -90,6 +92,8 @@ fi
 
 # check if any pod is in an unhealthy state in the namespace
 check_unhealthy_pods() {
+    echo "Check absenced of unhealthy containers"
+
     local unhealthy_pods
     unhealthy_pods=$(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase!=Running --no-headers)
 
@@ -106,6 +110,7 @@ check_unhealthy_pods
 # check if required containers exist in the pods in the namespace
 check_containers_in_pods() {
     local required_containers=("${REQUIRED_CONTAINERS[@]}")
+    echo "Check presence of required containers $required_containers"
 
     local pods_containers
     pods_containers=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].name}{"\n"}{end}')

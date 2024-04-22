@@ -154,34 +154,42 @@ if [ -z "$PROTO_FILE" ]; then
 fi
 
 # Check HTTP/2 connectivity
-echo "Checking HTTP/2 connectivity to $ZEEBE_HOST"
-curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST\""
-if eval "${curl_command}"; then
-    echo "[OK] HTTP/2 connectivity"
-else
-    echo "[KO] HTTP/2 connectivity" 1>&2
-    SCRIPT_STATUS_OUTPUT=3
-fi
+check_http2(){
+    echo "Checking HTTP/2 connectivity to $ZEEBE_HOST"
+    curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST\""
+    if eval "${curl_command}"; then
+        echo "[OK] HTTP/2 connectivity"
+    else
+        echo "[KO] HTTP/2 connectivity" 1>&2
+        SCRIPT_STATUS_OUTPUT=3
+    fi
+}
 
 # Check gRPC connectivity using grpcurl
-echo "Checking gRPC connectivity to $ZEEBE_HOST"
-grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}\" gateway_protocol.Gateway/Topology"
-if eval "${grcp_curl_command}"; then
-    echo "[OK] gRPC connectivity"
-else
-    echo "[KO] gRPC connectivity" 1>&2
-    SCRIPT_STATUS_OUTPUT=4
-fi
+check_grpc(){
+    echo "Checking gRPC connectivity to $ZEEBE_HOST"
+    grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}\" gateway_protocol.Gateway/Topology"
+    if eval "${grcp_curl_command}"; then
+        echo "[OK] gRPC connectivity"
+    else
+        echo "[KO] gRPC connectivity" 1>&2
+        SCRIPT_STATUS_OUTPUT=4
+    fi
+}
+check_grpc
 
 # Check zbctl status
-echo "Checking zbctl status to $ZEEBE_HOST..."
-zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE}  zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
-if eval "${zbctl_command}"; then
-    echo "[OK] zbctl status"
-else
-    echo "[KO] zbctl status" 1>&2
-    SCRIPT_STATUS_OUTPUT=5
-fi
+check_zbctl() {
+    echo "Checking zbctl status to $ZEEBE_HOST..."
+    zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE}  zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
+    if eval "${zbctl_command}"; then
+        echo "[OK] zbctl status"
+    else
+        echo "[KO] zbctl status" 1>&2
+        SCRIPT_STATUS_OUTPUT=5
+    fi
+}
+check_zbctl
 
 # Check if SCRIPT_STATUS_OUTPUT is not equal to zero
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then

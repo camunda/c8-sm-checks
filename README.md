@@ -16,16 +16,68 @@ This project aims to perform a health check of a Kubernetes installation with Ca
 
 The `checks` directory contains scripts for verifying Kubernetes and Zeebe connectivity and configuration. Each script can be executed independently.
 
+**Each script can be executed independently depending on the specific aspect you wish to test.**
+
 ## Usage
 
 ### Kubernetes
 
-The `connectivity.sh` script in the `checks/kube` directory verifies Kubernetes connectivity and configuration. It checks for the presence of services and ingresses that conform to the required specifications.
+Before using the Kubernetes health check scripts, ensure you have access to Kubernetes with a properly defined `kube config` context. 
 
-#### Example Usage:
+For more information on setting up `kube config` context, refer to the [Kubernetes documentation](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_config/kubectl_config_use-context/).
+
+#### Deployment Check (`/checks/kube/deployment.sh`)
+
+##### Description:
+
+This script checks the status of a Helm deployment in the specified namespace. 
+It verifies the presence and readiness of required containers within the deployment, depending of your topology you may change required containers.
+
+##### Usage:
 ```bash
-./checks/kube/connectivity.sh -n <NAMESPACE>
+Usage: ./checks/kube/deployment.sh [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME] [-l] [-c REQUIRED_CONTAINERS]
+Options:
+  -h                              Display this help message
+  -n NAMESPACE                    Specify the namespace to use
+  -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: camunda)
+  -l                              Skip checks of the helm deployment (default: 0)
+  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated, default: console connector web-modeler optimize zeebe zeebe-gateway)
 ```
+
+##### Example:
+```bash
+./checks/kube/deployment.sh -n camunda-primary -d camunda -c "zeebe,zeebe-gateway,web-modeler"
+```
+
+##### Dependencies:
+
+- `kubectl`: Required for interacting with Kubernetes clusters.
+
+#### Connectivity Check (`/checks/kube/connectivity.sh`)
+
+##### Description:
+
+This script verifies Kubernetes connectivity and associated configuration. 
+It checks for the presence of services and ingresses that conform to the required specifications.
+
+##### Usage:
+```bash
+Usage: ./checks/kube/connectivity.sh [-h] [-n NAMESPACE] [-i]
+Options:
+  -h                              Display this help message
+  -n NAMESPACE                    Specify the namespace to use
+  -i                              Skip checks of the ingress class (default: 0)
+```
+
+##### Example:
+```bash
+./checks/kube/connectivity.sh -n camunda-primary
+```
+
+##### Dependencies:
+
+- `kubectl`: Required for interacting with Kubernetes clusters.
+- `helm`: Required for managing Helm deployments.
 
 ### Zeebe Connectivity
 
