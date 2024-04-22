@@ -35,7 +35,7 @@ while getopts ":hd:n:c:l" opt; do
             ;;
         d)
             HELM_DEPLOYMENT_NAME=$OPTARG
-            ;;        
+            ;;
         l)
             SKIP_CHECK_HELM_DEPLOYMENT=1
             ;;

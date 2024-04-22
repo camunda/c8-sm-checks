@@ -22,7 +22,7 @@ The `checks` directory contains scripts for verifying Kubernetes and Zeebe conne
 
 ### Kubernetes
 
-Before using the Kubernetes health check scripts, ensure you have access to Kubernetes with a properly defined `kube config` context. 
+Before using the Kubernetes health check scripts, ensure you have access to Kubernetes with a properly defined `kube config` context.
 
 For more information on setting up `kube config` context, refer to the [Kubernetes documentation](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_config/kubectl_config_use-context/).
 
@@ -30,7 +30,7 @@ For more information on setting up `kube config` context, refer to the [Kubernet
 
 ##### Description:
 
-This script checks the status of a Helm deployment in the specified namespace. 
+This script checks the status of a Helm deployment in the specified namespace.
 It verifies the presence and readiness of required containers within the deployment, depending of your topology you may change required containers.
 
 ##### Usage:
@@ -57,7 +57,7 @@ Options:
 
 ##### Description:
 
-This script verifies Kubernetes connectivity and associated configuration. 
+This script verifies Kubernetes connectivity and associated configuration.
 It checks for the presence of services and ingresses that conform to the required specifications.
 
 ##### Usage:
@@ -103,7 +103,7 @@ Options:
 
 ##### Example:
 ```bash
-./checks/zeebe/token.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.example.com 
+./checks/zeebe/token.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.example.com
 ```
 
 ##### Dependencies:

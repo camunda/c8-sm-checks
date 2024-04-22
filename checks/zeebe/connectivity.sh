@@ -55,7 +55,7 @@ while getopts ":hH:f:kr:j:a:i:s:u:" opt; do
             ;;
         k)
             SKIP_TLS_VERIFICATION=true
-            ;;        
+            ;;
         r)
             CACERT="$OPTARG"
             ;;
