@@ -40,8 +40,7 @@ This script retrieves an access token from an authorization server using client 
 Usage: ./checks/zeebe/token.sh [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]
 Options:
   -h                          Display this help message
-  -a AUTH_SERVER_URL          Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
-oken)
+  -a AUTH_SERVER_URL          Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/token)
   -i CLIENT_ID                Specify the client ID
   -s CLIENT_SECRET            Specify the client secret
   -u TOKEN_AUDIENCE           Specify the token audience
@@ -56,11 +55,14 @@ oken)
 ```
 
 ##### Dependencies:
+
 - `curl`: Required for making HTTP requests.
+- A registred [[1] application on C8 Identity](#Reference)
 
 #### gRPC zeebe check (`/checks/zeebe/connectivity.sh`)
 
 ##### Description:
+
 This script verifies connectivity to a Zeebe instance using HTTP/2 and gRPC protocols. It also checks the status using `zbctl`.
 
 ##### Usage:
@@ -86,10 +88,17 @@ oken)
 ```
 
 ### Dependencies:
+
 - `curl`: Required for making HTTP requests.
 - `grpcurl`: Required for testing gRPC connectivity.
 - `zbctl`: Required for checking Zeebe status.
+- A registred [[1] application on C8 Identity](#Reference)
+
+## Reference
+
+- [[1] C8: How to register your application on Identity](https://github.com/camunda-community-hub/camunda-8-examples/blob/main/payment-example-process-application/kube/README.md#4-generating-an-m2m-token-for-our-application).
 
 ## License
+
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
