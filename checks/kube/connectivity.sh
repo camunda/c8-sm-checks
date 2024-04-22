@@ -21,7 +21,7 @@ usage() {
 }
 
 # Parse command line options
-while getopts ":hd:n:c:" opt; do
+while getopts ":hn:i" opt; do
     case ${opt} in
         h)
             usage
@@ -59,9 +59,11 @@ command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but
 check_services_resolution() {
     echo "Check services can be resolved in the pods"
 
-    local pods=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+    local pods
+    pods=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
 
-    local services=$(kubectl get services -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+    local services
+    services=$(kubectl get services -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
 
     # for each pod, we check if all the services can be resolved
     for pod in $pods; do
@@ -72,7 +74,8 @@ check_services_resolution() {
         fi
 
         for service in $services; do
-            local curl_output=$(kubectl exec -n "$NAMESPACE" "$pod" -- curl -s -v --max-time 1 "$service" 2>&1)
+            local curl_output
+            curl_output=$(kubectl exec -n "$NAMESPACE" "$pod" -- curl -s -v --max-time 1 "$service" 2>&1)
 
             # Check if the output contains "Trying ip:port" (IPv4 or IPv6)
             if echo "$curl_output" | grep -Eq "Trying ([0-9.]*|\[[0-9a-fA-F:]*\]):[0-9]*"; then

@@ -20,7 +20,7 @@ usage() {
     echo "  -n NAMESPACE                    Specify the namespace to use"
     echo "  -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: $HELM_DEPLOYMENT_NAME)"
     echo "  -l                              Skip checks of the helm deployment (default: $SKIP_CHECK_HELM_DEPLOYMENT)"
-    echo "  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated, default: ${REQUIRED_CONTAINERS[@]})"
+    echo "  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated, default: ${REQUIRED_CONTAINERS[*]})"
     exit 1
 }
 
@@ -109,8 +109,9 @@ check_unhealthy_pods
 
 # check if required containers exist in the pods in the namespace
 check_containers_in_pods() {
-    local required_containers=("${REQUIRED_CONTAINERS[@]}")
-    echo "Check presence of required containers $required_containers"
+    local required_containers
+    required_containers=("${REQUIRED_CONTAINERS[@]}")
+    echo "Check presence of required containers ${required_containers[*]}"
 
     local pods_containers
     pods_containers=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].name}{"\n"}{end}')
