@@ -79,7 +79,7 @@ check_services_resolution() {
 
             # Check if the output contains "Trying ip:port" (IPv4 or IPv6)
             if echo "$curl_output" | grep -Eq "Trying ([0-9.]*|\[[0-9a-fA-F:]*\]):[0-9]*"; then
-                echo "[OK] Service $service resolved successfully from pod $pod in namespace $NAMESPACE: $curl_output"
+                echo "[OK] Service $service resolved successfully from pod $pod in namespace $NAMESPACE"
             else
                 echo "[KO] Service $service resolution failed from pod $pod in namespace $NAMESPACE: $curl_output" >&2
                 SCRIPT_STATUS_OUTPUT=2
