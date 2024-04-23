@@ -11,7 +11,7 @@ LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 NAMESPACE=""
 HELM_DEPLOYMENT_NAME="camunda"
 SKIP_CHECK_HELM_DEPLOYMENT=0
-REQUIRED_CONTAINERS=("console" "connector" "web-modeler" "optimize" "zeebe" "zeebe-gateway")
+REQUIRED_CONTAINERS=("connector" "optimize" "zeebe" "zeebe-gateway")
 
 usage() {
     echo "Usage: $0 [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]"
@@ -57,7 +57,7 @@ SCRIPT_STATUS_OUTPUT=0
 
 # Check if all required options are provided
 if [ -z "$NAMESPACE" ]; then
-    echo "Error: Missing required options (NAMESPACE)." 1>&2
+    echo "Error: Missing one of the required options (list of all required options: NAMESPACE)." 1>&2
     usage
 fi
 

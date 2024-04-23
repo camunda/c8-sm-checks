@@ -89,7 +89,7 @@ SCRIPT_STATUS_OUTPUT=0
 
 # Check if all required options are provided
 if [ -z "$ZEEBE_HOST" ]; then
-    echo "Error: Missing required options (ZEEBE_HOST)." 1>&2
+    echo "Error: Missing one of the required options (list of all required options: ZEEBE_HOST)." 1>&2 
     usage
 fi
 
@@ -164,6 +164,7 @@ check_http2(){
         SCRIPT_STATUS_OUTPUT=3
     fi
 }
+check_http2
 
 # Check gRPC connectivity using grpcurl
 check_grpc(){

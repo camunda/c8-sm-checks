@@ -47,7 +47,7 @@ SCRIPT_STATUS_OUTPUT=0
 
 # Check if all required options are provided
 if [ -z "$NAMESPACE" ]; then
-    echo "Error: Missing required options (NAMESPACE)." 1>&2
+    echo "Error: Missing one of the required options (list of all required options: NAMESPACE)." 1>&2   
     usage
 fi
 

@@ -75,7 +75,7 @@ SCRIPT_STATUS_OUTPUT=0
 
 # Check if all required options are provided
 if [ -z "$ZEEBE_AUTHORIZATION_SERVER_URL" ] || [ -z "$ZEEBE_CLIENT_ID" ] || [ -z "$ZEEBE_CLIENT_SECRET" ] || [ -z "$ZEEBE_TOKEN_AUDIENCE" ]; then
-    echo "Error: Missing required options (ZEEBE_AUTHORIZATION_SERVER_URL, ZEEBE_CLIENT_ID, ZEEBE_CLIENT_SECRET, ZEEBE_TOKEN_AUDIENCE)." 1>&2
+    echo "Error: Missing one of the required options (list of all required options: ZEEBE_AUTHORIZATION_SERVER_URL, ZEEBE_CLIENT_ID, ZEEBE_CLIENT_SECRET, ZEEBE_TOKEN_AUDIENCE)." 1>&2 
     usage
 fi
 
