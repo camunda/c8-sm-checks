@@ -1,0 +1,6 @@
+# /!\ Please maintain this file sorted alphabetically.
+# check it with
+# diff <(sed '/^#/d; /^$/d' .tool-versions | sort) <(sed '/^#/d; /^$/d' .tool-versions) && echo ".tool-versions is sorted correctly" || echo ".tool-versions is not sorted correctly"
+
+# renovate: datasource=github-releases depName=pre-commit/pre-commit
+pre-commit 3.7.0

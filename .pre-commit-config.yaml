@@ -1,0 +1,40 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-symlinks
+      - id: check-shebang-scripts-are-executable
+      - id: detect-private-key
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.6.27
+    hooks:
+      - id: actionlint-docker
+
+  - repo: https://github.com/renovatebot/pre-commit-hooks
+    rev: 37.278.0
+    hooks:
+      - id: renovate-config-validator
+        args: ["--strict"]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: ["--strict" , "--force-scope"]
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+    -   id: shellcheck
+
+  - repo: https://github.com/tcort/markdown-link-check
+    rev: v3.12.1 # use tags until renovate supports sha: https://github.com/renovatebot/renovate/issues/22567
+    hooks:
+      - id: markdown-link-check
+        args: [-q, -c .github/markdown-links.json]
+...
