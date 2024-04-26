@@ -135,7 +135,7 @@ if [ -n "${ZEEBE_AUTHORIZATION_SERVER_URL}" ] || [ -n "${ZEEBE_CLIENT_ID}" ] || 
     if [ -n "$access_token" ]; then
         echo "[OK] Auth token successfuly generated"
     else
-        echo "[KO] Failed to generate access token: $token_output." 1>&2
+        echo "[FAIL] Failed to generate access token: $token_output." 1>&2
         SCRIPT_STATUS_OUTPUT=2
     fi
 fi
@@ -160,7 +160,7 @@ check_http2(){
     if eval "${curl_command}"; then
         echo "[OK] HTTP/2 connectivity"
     else
-        echo "[KO] HTTP/2 connectivity" 1>&2
+        echo "[FAIL] HTTP/2 connectivity" 1>&2
         SCRIPT_STATUS_OUTPUT=3
     fi
 }
@@ -168,12 +168,17 @@ check_http2
 
 # Check gRPC connectivity using grpcurl
 check_grpc(){
-    echo "Checking gRPC connectivity to $ZEEBE_HOST"
+    echo "[INFO] Checking gRPC connectivity to $ZEEBE_HOST"
+
+    local grcp_curl_command
     grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}\" gateway_protocol.Gateway/Topology"
+    echo "[INFO] Running command: ${grcp_curl_command}"
+
+
     if eval "${grcp_curl_command}"; then
         echo "[OK] gRPC connectivity"
     else
-        echo "[KO] gRPC connectivity" 1>&2
+        echo "[FAIL] gRPC connectivity" 1>&2
         SCRIPT_STATUS_OUTPUT=4
     fi
 }
@@ -181,12 +186,17 @@ check_grpc
 
 # Check zbctl status
 check_zbctl() {
-    echo "Checking zbctl status to $ZEEBE_HOST..."
+    echo "[INFO] Checking zbctl status to $ZEEBE_HOST..."
+    
+    local zbctl_command
     zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE}  zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
+    
+    echo "[INFO] Running command: ${zbctl_command}"
+
     if eval "${zbctl_command}"; then
         echo "[OK] zbctl status"
     else
-        echo "[KO] zbctl status" 1>&2
+        echo "[FAIL] zbctl status" 1>&2
         SCRIPT_STATUS_OUTPUT=5
     fi
 }
@@ -194,7 +204,7 @@ check_zbctl
 
 # Check if SCRIPT_STATUS_OUTPUT is not equal to zero
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
-    echo "[KO] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
+    echo "[FAIL] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
     exit $SCRIPT_STATUS_OUTPUT
 else
     echo "[OK] ${LVL_1_SCRIPT_NAME}: All test passed."

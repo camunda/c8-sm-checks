@@ -67,21 +67,24 @@ command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but
 
 # Helm checks of the deployment
 check_helm_deployment() {
-    echo "Check status of the last helm deployment"
+    echo "[INFO] Check status of the last helm deployment"
 
     local last_deployment
-    last_deployment=$(helm list -n "$NAMESPACE" | grep "$HELM_DEPLOYMENT_NAME" | head -n 1)
+    local last_deployment_command
+    last_deployment_command="helm list -n \"$NAMESPACE\" | grep \"$HELM_DEPLOYMENT_NAME\" | head -n 1"
+    echo "[INFO] Running command: ${last_deployment_command}"
+    last_deployment=$(eval "${last_deployment_command}")
 
     if [[ -n "$last_deployment" ]]; then
         deployment_status=$(echo "$last_deployment" | awk '{ print $8 }')
         if [[ "$deployment_status" == "deployed" ]]; then
             echo "[OK] Last Helm deployment $HELM_DEPLOYMENT_NAME was successful"
         else
-            echo "[KO] Last Helm deployment $HELM_DEPLOYMENT_NAME was not successful: (status=$deployment_status)" >&2
+            echo "[FAIL] Last Helm deployment $HELM_DEPLOYMENT_NAME was not successful: (status=$deployment_status)" >&2
             SCRIPT_STATUS_OUTPUT=2
         fi
     else
-        echo "[KO] No deployment found for $HELM_DEPLOYMENT_NAME in namespace $NAMESPACE" >&2
+        echo "[FAIL] No deployment found for $HELM_DEPLOYMENT_NAME in namespace $NAMESPACE" >&2
         SCRIPT_STATUS_OUTPUT=3
     fi
 }
@@ -92,15 +95,18 @@ fi
 
 # check if any pod is in an unhealthy state in the namespace
 check_unhealthy_pods() {
-    echo "Check absenced of unhealthy containers"
+    echo "[INFO] Check absenced of unhealthy containers"
 
     local unhealthy_pods
-    unhealthy_pods=$(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase!=Running --no-headers)
+    local unhealthy_pods_command
+    unhealthy_pods_command="kubectl get pods -n \"$NAMESPACE\" --field-selector=status.phase!=Running --no-headers"
+    echo "[INFO] Running command: ${unhealthy_pods_command}"
+    unhealthy_pods=$(eval "${unhealthy_pods_command}")
 
     if [[ -z "$unhealthy_pods" ]]; then
         echo "[OK] All pods are in an healthy state in namespace $NAMESPACE"
     else
-        echo "[KO] Pods in unhealthy state in namespace $NAMESPACE:" >&2
+        echo "[FAIL] Pods in unhealthy state in namespace $NAMESPACE:" >&2
         echo "$unhealthy_pods" >&2
         SCRIPT_STATUS_OUTPUT=4
     fi
@@ -111,15 +117,18 @@ check_unhealthy_pods
 check_containers_in_pods() {
     local required_containers
     required_containers=("${REQUIRED_CONTAINERS[@]}")
-    echo "Check presence of required containers ${required_containers[*]}"
+    echo "[INFO] Check presence of required containers ${required_containers[*]}"
 
     local pods_containers
-    pods_containers=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].name}{"\n"}{end}')
+    local pods_containers_command
+    pods_containers_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\t\"}{.spec.containers[*].name}{\"\n\"}{end}'"
+    echo "[INFO] Running command: ${pods_containers_command}"
+    pods_containers=$(eval "${pods_containers_command}")
 
     for container in "${required_containers[@]}"; do
         # Check if the container exists in any pod
         if ! echo "$pods_containers" | awk -v container="$container" '$0 ~ container { found = 1; exit } END { exit !found }'; then
-            echo "[KO] The following required container is missing in the pods in namespace $NAMESPACE: $container" >&2
+            echo "[FAIL] The following required container is missing in the pods in namespace $NAMESPACE: $container" >&2
             SCRIPT_STATUS_OUTPUT=5
         fi
     done
@@ -128,7 +137,7 @@ check_containers_in_pods
 
 # Check if SCRIPT_STATUS_OUTPUT is not equal to zero
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
-    echo "[KO] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
+    echo "[FAIL] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
     exit $SCRIPT_STATUS_OUTPUT
 else
     echo "[OK] ${LVL_1_SCRIPT_NAME}: All test passed."

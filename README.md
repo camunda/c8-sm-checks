@@ -1,4 +1,4 @@
-# # C8 Self-Managed Checks
+# C8 Self-Managed Checks
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
