@@ -174,7 +174,7 @@ download_zeebe_protofile(){
     local curl_download_command
     curl_download_command="curl -f \"https://raw.githubusercontent.com/camunda/zeebe/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto\" -o \"$PROTO_FILE\""
     echo "[INFO] Running command: ${curl_download_command}"
-   
+
     if eval "${curl_download_command}"; then
         echo "[INFO] Successfuly downloaded proto file for Zeebe=${ZEEBE_VERSION}"
     else
@@ -208,10 +208,10 @@ check_grpc
 # Check zbctl status
 check_zbctl() {
     echo "[INFO] Checking zbctl status to $ZEEBE_HOST..."
-    
+
     local zbctl_command
     zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE}  zbctl status --address \"${ZEEBE_HOST}\" --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
-    
+
     echo "[INFO] Running command: ${zbctl_command}"
 
     if eval "${zbctl_command}"; then
