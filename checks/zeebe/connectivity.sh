@@ -23,26 +23,30 @@ ZEEBE_CLIENT_SECRET=""
 ZEEBE_TOKEN_AUDIENCE=""
 ZEEBE_TOKEN_SCOPE="camunda-identity"
 
+# renovate: datasource=github-tags depName=camunda/zeebe
+ZEEBE_VERSION="8.5.0"
+
 # Function to display script usage
 usage() {
     echo "Usage: $0 [-h] [-H ZEEBE_HOST]"
     echo "Options:"
-    echo "  -h                     Display this help message"
-    echo "  -H ZEEBE_HOST          Specify the Zeebe host with the port (e.g., zeebe.c8.camunda.example.com:443)"
-    echo "  -f PROTO_FILE          Specify the path to gateway.proto file or leave empty to download it"
-    echo "  -k                     Skip TLS verification (insecure mode)"
-    echo "  -r CACERT              Specify the path to CA certificate file"
-    echo "  -j CLIENTCERT          Specify the path to Client certificate file"
-    echo "  -a AUTH_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/t
+    echo "  -h                                    Display this help message"
+    echo "  -H ZEEBE_HOST                         Specify the Zeebe host with the port (e.g., zeebe.c8.camunda.example.com:443)"
+    echo "  -p ZEEBE_VERSION                      Specify the Zeebe version (default is latest version: $ZEEBE_VERSION)"
+    echo "  -f PROTO_FILE                         Specify the path to gateway.proto file or leave empty to download it (default behavior is to download the protofile)"
+    echo "  -k                                    Skip TLS verification (insecure mode)"
+    echo "  -r CACERT                             Specify the path to CA certificate file"
+    echo "  -j CLIENTCERT                         Specify the path to Client certificate file"
+    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/t
 oken)"
-    echo "  -i CLIENT_ID           Specify the client ID"
-    echo "  -s CLIENT_SECRET       Specify the client secret"
-    echo "  -u TOKEN_AUDIENCE      Specify the token audience"
+    echo "  -i ZEEBE_CLIENT_ID                    Specify the client ID"
+    echo "  -s ZEEBE_CLIENT_SECRET                Specify the client secret"
+    echo "  -u ZEEBE_TOKEN_AUDIENCE               Specify the token audience"
     exit 1
 }
 
 # Parse command line options
-while getopts ":hH:f:kr:j:a:i:s:u:" opt; do
+while getopts ":hH:f:kr:j:a:i:s:u:p:" opt; do
     case ${opt} in
         h)
             usage
@@ -73,6 +77,9 @@ while getopts ":hH:f:kr:j:a:i:s:u:" opt; do
             ;;
         u)
             ZEEBE_TOKEN_AUDIENCE=$OPTARG
+            ;;
+        p)
+            ZEEBE_VERSION=$OPTARG
             ;;
         \?)
             echo "Invalid option: $OPTARG" 1>&2
@@ -145,26 +152,40 @@ if [ -n "${access_token}" ]; then
     EXTRA_FLAGS_GRPCURL+=" -H 'Authorization: Bearer ${access_token}' "
 fi
 
-
-# Check if proto file path is provided, if not, download it
-if [ -z "$PROTO_FILE" ]; then
-    PROTO_FILE="gateway.proto"
-    echo "Downloading gateway.proto..."
-    wget https://raw.githubusercontent.com/camunda/zeebe/main/zeebe/gateway-protocol/src/main/proto/gateway.proto -O $PROTO_FILE
-fi
-
 # Check HTTP/2 connectivity
 check_http2(){
-    echo "Checking HTTP/2 connectivity to $ZEEBE_HOST"
+    echo "[INFO] Checking HTTP/2 connectivity to $ZEEBE_HOST"
     curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST\""
+    echo "[INFO] Running command: ${curl_command}"
+
     if eval "${curl_command}"; then
         echo "[OK] HTTP/2 connectivity"
     else
         echo "[FAIL] HTTP/2 connectivity" 1>&2
-        SCRIPT_STATUS_OUTPUT=3
+        SCRIPT_STATUS_OUTPUT=4
     fi
 }
 check_http2
+
+# Check if proto file path is provided, if not, download it
+download_zeebe_protofile(){
+    echo "[INFO] Downloading gateway.proto for zeebe=${ZEEBE_VERSION}..."
+
+    local curl_download_command
+    curl_download_command="curl -f \"https://raw.githubusercontent.com/camunda/zeebe/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto\" -o \"$PROTO_FILE\""
+    echo "[INFO] Running command: ${curl_download_command}"
+   
+    if eval "${curl_download_command}"; then
+        echo "[INFO] Successfuly downloaded proto file for Zeebe=${ZEEBE_VERSION}"
+    else
+        echo "[FAIL] Failed to downloaded proto file for Zeebe=${ZEEBE_VERSION}" 1>&2
+        SCRIPT_STATUS_OUTPUT=3
+    fi
+}
+if [ -z "$PROTO_FILE" ]; then
+    PROTO_FILE="gateway.proto"
+    download_zeebe_protofile
+fi
 
 # Check gRPC connectivity using grpcurl
 check_grpc(){
@@ -179,7 +200,7 @@ check_grpc(){
         echo "[OK] gRPC connectivity"
     else
         echo "[FAIL] gRPC connectivity" 1>&2
-        SCRIPT_STATUS_OUTPUT=4
+        SCRIPT_STATUS_OUTPUT=5
     fi
 }
 check_grpc
@@ -197,7 +218,7 @@ check_zbctl() {
         echo "[OK] zbctl status"
     else
         echo "[FAIL] zbctl status" 1>&2
-        SCRIPT_STATUS_OUTPUT=5
+        SCRIPT_STATUS_OUTPUT=6
     fi
 }
 check_zbctl

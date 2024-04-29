@@ -21,15 +21,15 @@ EXTRA_FLAGS_CURL=""
 usage() {
     echo "Usage: $0 [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]"
     echo "Options:"
-    echo "  -h                          Display this help message"
-    echo "  -a AUTH_SERVER_URL          Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
+    echo "  -h                                  Display this help message"
+    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
 oken)"
-    echo "  -i CLIENT_ID                Specify the client ID"
-    echo "  -s CLIENT_SECRET            Specify the client secret"
-    echo "  -u TOKEN_AUDIENCE           Specify the token audience"
-    echo "  -k                          Skip TLS verification (insecure mode)"
-    echo "  -r CACERT                   Specify the path to CA certificate file"
-    echo "  -j CLIENTCERT               Specify the path to client certificate file"
+    echo "  -i ZEEBE_CLIENT_ID                  Specify the client ID"
+    echo "  -s ZEEBE_CLIENT_SECRET              Specify the client secret"
+    echo "  -u ZEEBE_TOKEN_AUDIENCE             Specify the token audience"
+    echo "  -k                                  Skip TLS verification (insecure mode)"
+    echo "  -r CACERT                           Specify the path to CA certificate file"
+    echo "  -j CLIENTCERT                       Specify the path to client certificate file"
     exit 1
 }
 
