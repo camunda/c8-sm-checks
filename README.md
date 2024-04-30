@@ -1,5 +1,9 @@
 # C8 Self-Managed Checks
 
+[![Camunda](https://img.shields.io/badge/Camunda-FC5D0D)](https://www.camunda.com/)
+<!--
+TODO: enable once merged
+[![tests](https://github.com/camunda/c8-sm-checks/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/camunda/c8-sm-checks/actions/workflows/lint.yml) -->
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Overview
