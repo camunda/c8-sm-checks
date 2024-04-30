@@ -91,7 +91,7 @@ This script retrieves an access token from an authorization server using client 
 
 ##### Usage:
 ```bash
-Usage: ./checks/zeebe/token.sh [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]
+Usage: ./checks/zeebe/token.sh [-h] [-a ZEEBE_AUTHORIZATION_SERVER_URL] [-i ZEEBE_CLIENT_ID] [-s ZEEBE_CLIENT_SECRET] [-u ZEEBE_TOKEN_AUDIENCE]
 Options:
   -h                                  Display this help message
   -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/token)
