@@ -16,7 +16,7 @@
       "customType": "regex",
       "fileMatch": ["\.sh",],
       "matchStrings": [
-        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?( versioning=(?<versioning>.*?))?\\s.*?(- |=|: )(?<currentValue>.*)",
+        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?( extractVersion=(?<extractVersion>.*?))?\\s(?<originalPackageName>.*?)=\"(?<currentValue>.*?)\""
       ],
       "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
     },
