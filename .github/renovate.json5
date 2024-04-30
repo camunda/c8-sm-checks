@@ -11,4 +11,13 @@
   platformAutomerge: false,
   prHourlyLimit: 6,
   prConcurrentLimit: 20,
+  customManagers: [
+    {
+      "customType": "regex",
+      "fileMatch": ["\.sh",],
+      "matchStrings": [
+        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?( extractVersion=(?<extractVersion>.*?))?\\s(?<originalPackageName>.*?)=\"(?<currentValue>.*?)\""
+      ],
+    },
+  ]
 }

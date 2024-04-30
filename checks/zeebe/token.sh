@@ -21,15 +21,15 @@ EXTRA_FLAGS_CURL=""
 usage() {
     echo "Usage: $0 [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]"
     echo "Options:"
-    echo "  -h                          Display this help message"
-    echo "  -a AUTH_SERVER_URL          Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
+    echo "  -h                                  Display this help message"
+    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
 oken)"
-    echo "  -i CLIENT_ID                Specify the client ID"
-    echo "  -s CLIENT_SECRET            Specify the client secret"
-    echo "  -u TOKEN_AUDIENCE           Specify the token audience"
-    echo "  -k                          Skip TLS verification (insecure mode)"
-    echo "  -r CACERT                   Specify the path to CA certificate file"
-    echo "  -j CLIENTCERT               Specify the path to client certificate file"
+    echo "  -i ZEEBE_CLIENT_ID                  Specify the client ID"
+    echo "  -s ZEEBE_CLIENT_SECRET              Specify the client secret"
+    echo "  -u ZEEBE_TOKEN_AUDIENCE             Specify the token audience"
+    echo "  -k                                  Skip TLS verification (insecure mode)"
+    echo "  -r CACERT                           Specify the path to CA certificate file"
+    echo "  -j CLIENTCERT                       Specify the path to client certificate file"
     exit 1
 }
 
@@ -96,6 +96,7 @@ command -v curl >/dev/null 2>&1 || { echo >&2 "Error: curl is required but not i
 
 
 curl_command="curl -f -d \"client_id=${ZEEBE_CLIENT_ID}\" -d \"client_secret=${ZEEBE_CLIENT_SECRET}\" -d \"grant_type=client_credentials\" \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" ${EXTRA_FLAGS_CURL}"
+echo "[INFO] Running command: ${curl_command}"
 
 # Generate access token
 access_token_response=$(eval "${curl_command}")
@@ -105,12 +106,12 @@ curl_exit_code=$?
 if [ $curl_exit_code -eq 0 ]; then
     echo "[OK] Generated access token"
 else
-    echo "[KO] Curl command failed with exit code $curl_exit_code" 1>&2
+    echo "[FAIL] Curl command failed with exit code $curl_exit_code" 1>&2
     SCRIPT_STATUS_OUTPUT=2
 fi
 
 if [ -z "$access_token_response" ]; then
-    echo "[KO] Failed to generate access token." 1>&2
+    echo "[FAIL] Failed to generate access token." 1>&2
     SCRIPT_STATUS_OUTPUT=3
 fi
 
@@ -118,14 +119,14 @@ fi
   # shellcheck disable=SC2001
 token=$(echo "$access_token_response" | sed 's/.*access_token":"\([^"]*\)".*/\1/')
 if [ -z "$token" ]; then
-    echo "[KO] Failed to extract access token." 1>&2
+    echo "[FAIL] Failed to extract access token." 1>&2
     SCRIPT_STATUS_OUTPUT=4
 else
     echo "[OK] Access Token: ${token}"
 fi
 
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
-    echo "[KO] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
+    echo "[FAIL] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
     exit $SCRIPT_STATUS_OUTPUT
 else
     echo "[OK] ${LVL_1_SCRIPT_NAME}: All test passed."

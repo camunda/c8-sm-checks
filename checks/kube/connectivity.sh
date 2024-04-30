@@ -57,13 +57,19 @@ command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but
 
 # check if all services can be resolved in pods with curl in the pod
 check_services_resolution() {
-    echo "Check services can be resolved in the pods"
+    echo "[INFO] Check services can be resolved in the pods"
 
     local pods
-    pods=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+    local pods_command
+    pods_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}'"
+    echo "[INFO] Running command: ${pods_command}"
+    pods=$(eval "${pods_command}")
 
     local services
-    services=$(kubectl get services -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+    local services_command
+    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}'"
+    echo "[INFO] Running command: ${services_command}"
+    services=$(eval "${services_command}")
 
     # for each pod, we check if all the services can be resolved
     for pod in $pods; do
@@ -75,13 +81,16 @@ check_services_resolution() {
 
         for service in $services; do
             local curl_output
-            curl_output=$(kubectl exec -n "$NAMESPACE" "$pod" -- curl -s -v --max-time 1 "$service" 2>&1)
+            local curl_command
+            curl_command="kubectl exec -n \"$NAMESPACE\" \"$pod\" -- curl -s -v --max-time 1 \"$service\""
+            echo "[INFO] Running command: ${curl_command}"
+            curl_output=$(eval "${curl_command}" 2>&1)
 
             # Check if the output contains "Trying ip:port" (IPv4 or IPv6)
             if echo "$curl_output" | grep -Eq "Trying ([0-9.]*|\[[0-9a-fA-F:]*\]):[0-9]*"; then
                 echo "[OK] Service $service resolved successfully from pod $pod in namespace $NAMESPACE"
             else
-                echo "[KO] Service $service resolution failed from pod $pod in namespace $NAMESPACE: $curl_output" >&2
+                echo "[FAIL] Service $service resolution failed from pod $pod in namespace $NAMESPACE: $curl_output" >&2
                 SCRIPT_STATUS_OUTPUT=2
             fi
         done
@@ -90,18 +99,27 @@ check_services_resolution() {
 check_services_resolution
 
 check_ingress_class_and_config() {
-    echo "Check ingress and associated configuration"
+    echo "[INFO] Check ingress and associated configuration"
 
+    local annotation_found
     annotation_found=0
 
-    ingress_list=$(kubectl get ingress -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+    local ingress_list
+    local ingress_list_command
+    ingress_list_command="kubectl get ingress -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}'"
+    echo "[INFO] Running command: ${ingress_list_command}"
+    ingress_list=$(eval "${ingress_list_command}")
 
     # check each ingress listed
     for ingress_name in $ingress_list; do
-        ingress_class=$(kubectl get ingress -n "$NAMESPACE" "$ingress_name" -o jsonpath='{.spec.ingressClassName}')
+        local ingress_class
+        local ingress_class_command
+        ingress_class_command="kubectl get ingress -n \"$NAMESPACE\" \"$ingress_name\" -o jsonpath='{.spec.ingressClassName}'"
+        echo "[INFO] Running command: ${ingress_class_command}"
+        ingress_class=$(eval "${ingress_class_command}")
 
         if [ "$ingress_class" != "nginx" ]; then
-            echo "[KO] Ingress class is not nginx for $ingress_name. Actual class: $ingress_class." >&2
+            echo "[FAIL] Ingress class is not nginx for $ingress_name. Actual class: $ingress_class." >&2
             echo "If you configured it on purpose, please the SKIP_CHECK_INGRESS_CLASS option." >&2
             SCRIPT_STATUS_OUTPUT=3
         else
@@ -114,7 +132,7 @@ check_ingress_class_and_config() {
     done
 
     if [ "$annotation_found" -eq 0 ]; then
-        echo "[KO] None of the ingresses contain the annotation nginx.ingress.kubernetes.io/backend-protocol: GRPC, which is required for zeebe ingress." >&2
+        echo "[FAIL] None of the ingresses contain the annotation nginx.ingress.kubernetes.io/backend-protocol: GRPC, which is required for zeebe ingress." >&2
         SCRIPT_STATUS_OUTPUT=5
     fi
 }
@@ -124,7 +142,7 @@ fi
 
 # Check if SCRIPT_STATUS_OUTPUT is not equal to zero
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
-    echo "[KO] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
+    echo "[FAIL] ${LVL_1_SCRIPT_NAME}: At least one of the tests failed (error code: ${SCRIPT_STATUS_OUTPUT})." 1>&2
     exit $SCRIPT_STATUS_OUTPUT
 else
     echo "[OK] ${LVL_1_SCRIPT_NAME}: All test passed."
