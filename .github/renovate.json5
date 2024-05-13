@@ -1,23 +1,4 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: [
-    "config:recommended",
-    ":automergeDisabled",
-    ":semanticCommits",
-    ":dependencyDashboard",
-    ":enablePreCommit",
-  ],
-  schedule: ["every weekend"],
-  platformAutomerge: false,
-  prHourlyLimit: 6,
-  prConcurrentLimit: 20,
-  customManagers: [
-    {
-      "customType": "regex",
-      "fileMatch": ["\.sh",],
-      "matchStrings": [
-        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?( extractVersion=(?<extractVersion>.*?))?\\s(?<originalPackageName>.*?)=\"(?<currentValue>.*?)\""
-      ],
-    },
-  ]
+  extends: ["github>camunda/infex-common-config:default.json5"],
 }
