@@ -28,13 +28,7 @@ repos:
         args: ["--strict" , "--force-scope"]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
+    rev: v0.10.0.1 # use tags until renovate supports sha: https://github.com/renovatebot/renovate/issues/22567
     hooks:
     -   id: shellcheck
-
-  - repo: https://github.com/tcort/markdown-link-check
-    rev: v3.12.1 # use tags until renovate supports sha: https://github.com/renovatebot/renovate/issues/22567
-    hooks:
-      - id: markdown-link-check
-        args: [-q, -c .github/markdown-links.json]
 ...
