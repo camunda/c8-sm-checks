@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 3 1 * *"
+  pull_request:
+    paths:
+      - .github/workflows/links.yml
 
 jobs:
   lint:
@@ -32,9 +35,18 @@ jobs:
           token: "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Create Issue From File
-        if: ${{ github.event_name == 'schedule' && env.lychee_exit_code != 0 }}
+        if: failure() && github.event_name == 'schedule'
         uses: peter-evans/create-issue-from-file@24452a72d85239eacf1468b0f1982a9f3fec4c94 # v5
         with:
           title: Link Checker Report
           content-filepath: ./lychee/out.md
           labels: report, automated issue
+
+      - name: Notify in Slack in case of failure
+        id: slack-notification
+        if: failure() && github.event_name == 'schedule'
+        uses: camunda/infraex-common-config/.github/actions/report-failure-on-slack@705df1af7d06626b8c6838f58123bb3bf84fc093 # main
+        with:
+          vault_addr: ${{ secrets.VAULT_ADDR }}
+          vault_role_id: ${{ secrets.VAULT_ROLE_ID }}
+          vault_secret_id: ${{ secrets.VAULT_SECRET_ID }}
