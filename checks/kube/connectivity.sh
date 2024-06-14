@@ -55,7 +55,7 @@ fi
 command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but not installed. Please install it (https://kubernetes.io/docs/tasks/tools/). Aborting."; exit 1; }
 
 
-# check if all services can be resolved in pods with curl in the pod
+# check if all services can be resolved in pods with in the pod
 check_services_resolution() {
     echo "[INFO] Check services can be resolved in the pods"
 
@@ -67,30 +67,57 @@ check_services_resolution() {
 
     local services
     local services_command
-    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}'"
+    # we only take the first port as we only want to check service name resolution and nothing else
+    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.ports[0].port}{\"\n\"}{end}'"
     echo "[INFO] Running command: ${services_command}"
     services=$(eval "${services_command}")
 
-    # for each pod, we check if all the services can be resolved
+    # check service resolution for each pod
     for pod in $pods; do
 
-        if ! kubectl exec -n "$NAMESPACE" "$pod" -- curl --version &>/dev/null; then
-            echo "Warning: curl is not available in pod $pod. Skipping service resolution check for this pod." >&2
+        local check_method=""
+        if kubectl exec -n "$NAMESPACE" "$pod" -- which bash &>/dev/null; then
+            check_method="bash"
+        elif kubectl exec -n "$NAMESPACE" "$pod" -- which nc &>/dev/null; then
+            check_method="nc"
+        else
+            echo "Warning: Neither bash nor nc are available in pod $pod. Skipping service resolution check for this pod." >&2
             continue
         fi
 
         for service in $services; do
-            local curl_output
-            local curl_command
-            curl_command="kubectl exec -n \"$NAMESPACE\" \"$pod\" -- curl -s -v --max-time 1 \"$service\""
-            echo "[INFO] Running command: ${curl_command}"
-            curl_output=$(eval "${curl_command}" 2>&1)
+            local service_name="${service%:*}"
+            local service_port="${service#*:}"
+            echo "[INFO] Checking service $service_name:$service_port from pod $pod"
 
-            # Check if the output contains "Trying ip:port" (IPv4 or IPv6)
-            if echo "$curl_output" | grep -Eq "Trying ([0-9.]*|\[[0-9a-fA-F:]*\]):[0-9]*"; then
-                echo "[OK] Service $service resolved successfully from pod $pod in namespace $NAMESPACE"
+            local check_output
+            local check_command
+
+            # depending of the available binaries in the container, we use various methods
+            case $check_method in
+                bash)
+                    check_command="kubectl exec -n \"$NAMESPACE\" \"$pod\" -- timeout 2 bash -c '</dev/tcp/$service_name/$service_port'"
+                    ;;
+                nc)
+                    check_command="kubectl exec -n \"$NAMESPACE\" \"$pod\" -- nc -zv \"$service_name\" \"$service_port\""
+                    ;;
+                *)
+                    echo "Error: Unsupported check method \"$check_method\"" >&2
+                    exit 1
+                    ;;
+            esac
+
+            # we use sh to ensure compatibility with most of the container images https://stackoverflow.com/a/14701003
+            echo "[INFO] Running command: ${check_command}"
+            check_output=$(eval "${check_command}" 2>&1)
+
+            # We prefer to check the output rather than the exit code as we care about service name resolution, not the flow opening
+            # "Invalid argument" is the error of the bash check
+            # "bad address" is the error of the nc check
+            if ! echo "$check_output" | grep -q -e "bad address" -e "Invalid argument"; then
+                echo "[OK] Service $service_name:$service_port resolved successfully from pod $pod in namespace $NAMESPACE"
             else
-                echo "[FAIL] Service $service resolution failed from pod $pod in namespace $NAMESPACE: $curl_output" >&2
+                echo "[FAIL] Service $service_name:$service_port resolution failed from pod $pod in namespace $NAMESPACE: $check_output" >&2
                 SCRIPT_STATUS_OUTPUT=2
             fi
         done
