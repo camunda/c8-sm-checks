@@ -24,7 +24,7 @@ ZEEBE_TOKEN_AUDIENCE=""
 ZEEBE_TOKEN_SCOPE="camunda-identity"
 
 # renovate: datasource=github-releases depName=camunda/zeebe
-ZEEBE_VERSION="8.5.1"
+ZEEBE_VERSION="8.5.3"
 
 # Function to display script usage
 usage() {
