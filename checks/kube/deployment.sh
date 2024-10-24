@@ -64,6 +64,30 @@ fi
 # required commands
 command -v kubectl >/dev/null 2>&1 || { echo >&2 "Error: kubectl is required but not installed. Please install it (https://kubernetes.io/docs/tasks/tools/). Aborting."; exit 1; }
 
+kubernetes_version_warning() {
+    echo "[WARN] Kubernetes version $1 might cause DNS issues on node restarts.
+       Please upgrade to $2 or later.
+       More information can be found in the documentation: https://docs.camunda.io/docs/self-managed/operational-guides/troubleshooting/#dns-disruption-issue-for-zeebe-in-kubernetes-clusters-129-131
+    "
+}
+
+check_kubernetes_version() {
+    echo "[INFO] Check Kubernetes version"
+
+    version=$(kubectl version | grep -i server | sed -E 's/(Server Version: )?v([0-9]+\.[0-9]+\.[0-9]+).*/\2/')
+    minor=$(echo "$version" | cut -d '.' -f 2)
+    patch=$(echo "$version" | cut -d '.' -f 3)
+
+    if [[ "$minor" -eq 29 && "$patch" -lt 10 ]]; then
+        kubernetes_version_warning "$version" "1.29.10"
+    elif [[ "$minor" -eq 30 && "$patch" -lt 6 ]]; then
+        kubernetes_version_warning "$version" "1.30.6"
+    elif [[ "$minor" -eq 31 && "$patch" -lt 2 ]]; then
+        kubernetes_version_warning "$version" "1.31.2"
+    fi
+}
+
+check_kubernetes_version
 
 # Helm checks of the deployment
 check_helm_deployment() {
