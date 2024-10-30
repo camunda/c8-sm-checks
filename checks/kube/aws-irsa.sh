@@ -21,6 +21,8 @@ COMPONENTS_TO_CHECK_IRSA_OS="zeebe,operate,tasklist,optimize"
 # The second list is for components that need IRSA to authenticate to PostgreSQL
 COMPONENTS_TO_CHECK_IRSA_PG="identityKeycloak,identity,webModeler"
 
+EXCLUDE_COMPONENTS=""
+
 # Minimum required AWS CLI versions
 REQUIRED_AWSCLI_VERSION_V2="2.12.3"
 REQUIRED_AWSCLI_VERSION_V1="1.27.160"
@@ -34,7 +36,7 @@ usage() {
     echo "  -e EXCLUDE_COMPONENTS           Comma-separated list of Components to exclude from the check (reference of the component is the root key used in the chart)"
     echo "  -p COMPONENTS_PG                Comma-separated list of Components to check IRSA for PostgreSQL (overrides default list: $COMPONENTS_TO_CHECK_IRSA_PG)"
     echo "  -l COMPONENTS_OS                Comma-separated list of Components to check IRSA for OpenSearch (overrides default list: $COMPONENTS_TO_CHECK_IRSA_OS)"
-    echo "  -s                              Disable pod spawn for IRSA verification"
+    echo "  -s                              Disable pod spawn for IRSA and network flow verification"
     exit 1
 }
 
@@ -81,8 +83,16 @@ echo "[INFO] Components to check for IRSA (OpenSearch): $COMPONENTS_TO_CHECK_IRS
 echo "[INFO] Components to exclude from IRSA checks: $EXCLUDE_COMPONENTS"
 
 # Exclude components from check if specified
-IFS=',' read -r -a EXCLUDE_COMPONENTS_ARRAY <<< "$EXCLUDE_COMPONENTS"
-EXCLUDE_PATTERN=$(printf "%s\n" "${EXCLUDE_COMPONENTS_ARRAY[@]}" | sed 's/^/\\b&\\b/' | tr '\n' '|' | sed 's/|$//')
+EXCLUDE_COMPONENTS_ARRAY=()
+if [[ -n "$EXCLUDE_COMPONENTS" ]]; then
+    IFS=',' read -r -a EXCLUDE_COMPONENTS_ARRAY <<< "$EXCLUDE_COMPONENTS"
+fi
+
+if [[ ${#EXCLUDE_COMPONENTS_ARRAY[@]} -gt 0 ]]; then
+    EXCLUDE_PATTERN=$(printf "%s\n" "${EXCLUDE_COMPONENTS_ARRAY[@]}" | sed 's/^/\\b&\\b/' | tr '\n' '|' | sed 's/|$//')
+else
+    EXCLUDE_PATTERN=""
+fi
 
 # pre-check requirements
 command -v jq >/dev/null 2>&1 || { echo 1>&2 "Error: jq is required but not installed. Please install it (https://jqlang.github.io/jq/download/). Aborting."; exit 1; }
@@ -176,9 +186,9 @@ retrieve_helm_deployment_values() {
     echo "[INFO] Running command: ${helm_chart_version_command}"
     HELM_CHART_VERSION=$(eval "${helm_chart_version_command}")
 
-    major_version=$(echo "$HELM_CHART_VERSION" | cut -d '.' -f 1)
+    major_version=$(echo "$HELM_CHART_VERSION" | sed 's/^.*-//' | cut -d '.' -f 1)
     if (( major_version < 11 )); then
-        echo "[WARNING] This script has only been tested with chart versions 11.x.x and above."
+        echo "[WARNING] This script has only been tested with chart versions 11.x.x and above, you are using $HELM_CHART_VERSION."
     fi
 
     if [[ -n "$HELM_CHART_VALUES" ]]; then
@@ -199,12 +209,12 @@ echo "$HELM_CHART_VALUES" | jq
 HELM_CHART_DEFAULT_VALUES=""
 get_helm_chart_default_values() {
     # Extract chart name and version from the HELM_CHART_VERSION variable
-    local CHART_NAME
-    local VERSION
+    chart_name=""
+    version=""
 
     if [[ -n "$HELM_CHART_VERSION" ]]; then
-        CHART_NAME=$(echo "$HELM_CHART_VERSION" | cut -d'-' -f1-2)
-        VERSION=$(echo "$HELM_CHART_VERSION" | cut -d'-' -f3)
+        chart_name=$(echo "$HELM_CHART_VERSION" | cut -d'-' -f1-2)
+        version=$(echo "$HELM_CHART_VERSION" | cut -d'-' -f3)
     else
         echo "[FAIL] HELM_CHART_VERSION is not set." 1>&2
         exit 1
@@ -215,6 +225,7 @@ get_helm_chart_default_values() {
     echo "[INFO] Running command: ${helm_repo_command}"
     helm_repo_output=$(eval "$helm_repo_command" 2>&1)
 
+    # shellcheck disable=SC2181
     if [ $? -eq 0 ]; then
         echo "[OK] Added Helm repository."
     else
@@ -227,6 +238,7 @@ get_helm_chart_default_values() {
     echo "[INFO] Running command: ${helm_update_command}"
     helm_update_output=$(eval "$helm_update_command" 2>&1)
 
+    # shellcheck disable=SC2181
     if [ $? -eq 0 ]; then
         echo "[OK] Updated Helm repository."
     else
@@ -235,10 +247,11 @@ get_helm_chart_default_values() {
     fi
 
     # Retrieve the default values and store them in a variable
-    helm_values_command="helm show values camunda/$CHART_NAME --version \"$VERSION\" | yq eval -o=json -"
+    helm_values_command="helm show values camunda/$chart_name --version \"$version\" | yq eval -o=json -"
     echo "[INFO] Running command: ${helm_values_command}"
     HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1)
 
+    # shellcheck disable=SC2181
     if [ $? -eq 0 ]; then
         echo "[OK] Retrieved default values from the chart."
     else
@@ -248,13 +261,106 @@ get_helm_chart_default_values() {
 }
 get_helm_chart_default_values
 
+check_eks_cluster() {
+    # Get the Kubernetes control plane URL
+    cluster_info=$(kubectl cluster-info)
+    control_plane_url=$(echo "$cluster_info" | grep 'Kubernetes control plane' | awk '{print $NF}' | sed 's/\x1b\[[0-9;]*m//g')
+
+    if [[ -z "$control_plane_url" ]]; then
+        echo "[FAIL] Unable to retrieve Kubernetes control plane URL." >&2
+        SCRIPT_STATUS_OUTPUT=30
+        return
+    fi
+
+    echo "[INFO] Control plane URL: $control_plane_url"
+
+    # Extract the region from the control plane URL
+    region=$(echo "$control_plane_url" | awk -F'.' '{print $(NF-3)}')
+    echo "[INFO] Derived region: $region from control plane URL."
+
+    # Describe the EKS clusters in the specified region
+    eks_clusters_command="aws eks list-clusters --region \"$region\" --query 'clusters[*]' --output text"
+    echo "[INFO] Running command: $eks_clusters_command"
+    eks_clusters=$(eval "$eks_clusters_command")
+
+    if [[ -z "$eks_clusters" ]]; then
+        echo "[FAIL] No EKS clusters found in region $region." >&2
+        SCRIPT_STATUS_OUTPUT=31
+        return
+    fi
+
+    echo "[INFO] Found EKS clusters in region $region: $eks_clusters"
+
+    # Loop through each EKS cluster to find the matching one
+    cluster_found=false
+    while read -r cluster_name; do
+        # Describe the cluster to get the control plane URL
+        eks_describe_command="aws eks describe-cluster --name \"$cluster_name\" --region \"$region\" --query 'cluster.endpoint' --output text"
+        echo "[INFO] Running command: $eks_describe_command"
+        eks_control_plane_url=$(eval "$eks_describe_command")
+
+        # Check if there are any hidden characters
+        if [[ "$eks_control_plane_url" == "$control_plane_url" ]]; then
+            echo "[OK] Matching EKS cluster found: $cluster_name with control plane URL: $eks_control_plane_url."
+            cluster_found=true
+            break
+        fi
+    done <<< "$eks_clusters"
+
+    if [[ "$cluster_found" == false ]]; then
+        echo "[FAIL] No matching EKS cluster found for control plane URL: $control_plane_url." >&2
+        SCRIPT_STATUS_OUTPUT=32
+    fi
+
+    # Retrieve the OIDC Issuer URL for the EKS cluster
+    oidc_command="aws eks describe-cluster --name \"$cluster_name\" --query \"cluster.identity.oidc.issuer\" --output text --region \"$region\""
+    echo "[INFO] Running command: $oidc_command"
+    oidc_issuer=$(eval "$oidc_command")
+
+    if [[ "$oidc_issuer" == "None" || -z "$oidc_issuer" ]]; then
+        echo "[FAIL] OIDC is not enabled on EKS cluster $cluster_name. Ensure OIDC is configured for the cluster." >&2
+        SCRIPT_STATUS_OUTPUT=33
+    else
+        echo "[OK] OIDC is enabled on EKS cluster $cluster_name with issuer: $oidc_issuer"
+    fi
+
+    # Retrieve the Kubernetes version for the EKS cluster
+    version_command="aws eks describe-cluster --name \"$cluster_name\" --query \"cluster.version\" --output text --region \"$region\""
+    echo "[INFO] Running command: $version_command"
+    kubernetes_version=$(eval "$version_command")
+
+    version_check=$(echo -e "1.23\n$kubernetes_version" | awk '{if ($1 > $2) {print "greater"} else {print "less_or_equal"}}')
+
+    if [[ "$version_check" == "less_or_equal" ]]; then
+        echo "[FAIL] Kubernetes version $kubernetes_version on EKS cluster $cluster_name is below the minimum required version 1.23 for IAM role integration (https://docs.aws.amazon.com/eks/latest/userguide/configure-sts-endpoint.html)." >&2
+        SCRIPT_STATUS_OUTPUT=34
+    else
+        echo "[OK] Kubernetes version $kubernetes_version on EKS cluster $cluster_name meets the minimum version requirement (≥1.23)."
+    fi
+
+    # Verify that IAM OIDC identity provider is configured
+    iam_oidc_check_command="aws iam list-open-id-connect-providers --query \"OpenIDConnectProviderList[?ends_with(Arn, '${oidc_issuer##*/}')].Arn\" --output text"
+    echo "[INFO] Running command: $iam_oidc_check_command"
+    iam_oidc_check=$(eval "$iam_oidc_check_command")
+
+    if [[ -z "$iam_oidc_check" ]]; then
+        echo "[FAIL] IAM OIDC identity provider is not enabled for EKS cluster $cluster_name. Please enable it for IRSA support." >&2
+        SCRIPT_STATUS_OUTPUT=35
+    else
+        echo "[OK] IAM OIDC identity provider is enabled for EKS cluster $cluster_name."
+    fi
+}
+
+check_eks_cluster
+
+
 # Function to retrieve service account names for each component
 PG_SERVICE_ACCOUNTS=""
 OS_SERVICE_ACCOUNTS=""
 get_service_account_name() {
-    local component_list=$1
-    local category=$2
-    local service_accounts_map="{}"
+    component_list=$1
+    category=$2
+    service_accounts_map="{}"
 
     # Iterate over each component
     IFS=',' read -r -a components <<< "$component_list"
@@ -321,6 +427,76 @@ else
     exit 1
 fi
 
+check_connectivity_with_nmap() {
+    component=$1
+    target_host=$2
+    target_port=$3
+
+    job_name="nmap-connectivity-check-$(echo "$component" | tr '[:upper:]' '[:lower:]')"
+    echo "[INFO] Creating job '$job_name' to check connectivity for component=$component to host=$target_host on port=$target_port."
+
+    # Create the Kubernetes job YAML and apply it
+    cat <<EOF | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: $job_name
+  namespace: $NAMESPACE
+spec:
+  template:
+    spec:
+      containers:
+      - name: $job_name
+        image: amazonlinux:latest
+        command: ["/bin/bash", "-c", "yum install -y nmap && nmap -Pn -p $target_port $target_host"]
+      restartPolicy: Never
+EOF
+
+    # Check for errors in job creation
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] (component=$component) Failed to create job $job_name." 1>&2
+        SCRIPT_STATUS_OUTPUT=41
+        return $SCRIPT_STATUS_OUTPUT
+    fi
+
+    # Wait for the job to complete
+    wait_command="kubectl wait --for=condition=complete --timeout=60s job/$job_name -n \"$NAMESPACE\""
+    echo "[INFO] Running command: $wait_command"
+    eval "$wait_command"
+
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] (component=$component) Job $job_name did not complete successfully." 1>&2
+        kubectl delete job "$job_name" -n "$NAMESPACE" --grace-period=0 --force >/dev/null 2>&1
+        SCRIPT_STATUS_OUTPUT=42
+        return $SCRIPT_STATUS_OUTPUT
+    fi
+
+    # Get the output of the job and capture only the result lines
+    output=$(kubectl logs job/"$job_name" -n "$NAMESPACE")
+    echo "[INFO] nmap output for $component: $output"
+
+    # Delete the job after execution
+    delete_command="kubectl delete job \"$job_name\" -n \"$NAMESPACE\" --grace-period=0 --force"
+    echo "[INFO] Running command: $delete_command"
+    eval "$delete_command"
+
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+        echo "[WARN] (component=$component) Failed to delete job $job_name, but it is non-fatal." 1>&2
+    fi
+
+    # Check if the port is open based on nmap output
+    if echo "$output" | grep -q "open"; then
+        echo "[OK] (component=$component) Connectivity check passed: Port $target_port on $target_host is open."
+    else
+        echo "[FAIL] (component=$component) Connectivity check failed: Port $target_port on $target_host is not open." 1>&2
+        SCRIPT_STATUS_OUTPUT=43
+        return $SCRIPT_STATUS_OUTPUT
+    fi
+}
+
 check_irsa_opensearch_requirements() {
     elasticsearch_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.elasticsearch.enabled')
     if [[ "$elasticsearch_enabled" == "null" ]]; then
@@ -340,20 +516,20 @@ check_irsa_opensearch_requirements() {
     # Perform the checks and output messages accordingly
     if [[ "$elasticsearch_enabled" == "true" ]]; then
         echo "[FAIL] IRSA is only supported for OpenSearch. Set global.elasticsearch.enabled to false and use OpenSearch instead." 1>&2
-        SCRIPT_STATUS_OUTPUT=17
+        SCRIPT_STATUS_OUTPUT=51
     fi
 
     if [[ "$opensearch_enabled" != "true" ]]; then
         echo "[FAIL] OpenSearch must be enabled for IRSA to work. Set global.opensearch.enabled to true." 1>&2
-        SCRIPT_STATUS_OUTPUT=17
+        SCRIPT_STATUS_OUTPUT=51
     fi
 
     if [[ "$opensearch_aws_enabled" != "true" ]]; then
         echo "[FAIL] OpenSearch AWS integration must be enabled. Set global.opensearch.aws.enabled to true." 1>&2
-        SCRIPT_STATUS_OUTPUT=17
+        SCRIPT_STATUS_OUTPUT=51
     fi
 
-    if [[ "$SCRIPT_STATUS_OUTPUT" != 17 ]]; then
+    if [[ "$SCRIPT_STATUS_OUTPUT" -ne 51 ]]; then
         echo "[OK] OpenSearch is correctly configured for IRSA support."
     fi
 }
@@ -363,11 +539,18 @@ check_opensearch_iam_enabled() {
 
     if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
         echo "[FAIL] The OpenSearch URL is not set. Please ensure that '.global.opensearch.url.host' is correctly specified in the Helm chart values." 1>&2
-        SCRIPT_STATUS_OUTPUT=18
+        SCRIPT_STATUS_OUTPUT=61
         return
     fi
 
     echo "[INFO] Retrieved OpenSearch URL: $opensearch_url"
+
+    if $SPAWN_POD; then
+        echo "[INFO] Network flow verification for OpenSearch with spawn of pods is enabled (use the -s flag if you want to disable it)."
+        check_connectivity_with_nmap "opensearch" "$opensearch_url" "443"
+    else
+        echo "[INFO] Network flow verification for OpenSearch with spawn of pods is disabled (-s flag). No pods will be spawned for component verification."
+    fi
 
     # Parse domain name: remove 'vpc-', extract part up to the last hyphen before the region/service
     domain_name=$(echo "$opensearch_url" | sed -E 's/^vpc-//' | sed -E 's/-[a-z0-9]+(\.[a-z]{2}-[a-z]+-[0-9]+\.es\.amazonaws\.com)$//')
@@ -376,7 +559,7 @@ check_opensearch_iam_enabled() {
     # Verify that both domain name and region were extracted
     if [[ -z "$domain_name" || -z "$region" ]]; then
         echo "[FAIL] Unable to parse the OpenSearch domain name or region from $opensearch_url." 1>&2
-        SCRIPT_STATUS_OUTPUT=19
+        SCRIPT_STATUS_OUTPUT=62
         return
     fi
 
@@ -390,7 +573,7 @@ check_opensearch_iam_enabled() {
     # Check if the command was successful
     if [[ $? -ne 0 || -z "$domain_info" ]]; then
         echo "[FAIL] Unable to retrieve OpenSearch domain information for $domain_name in region $region." 1>&2
-        SCRIPT_STATUS_OUTPUT=20
+        SCRIPT_STATUS_OUTPUT=63
         return
     else
         echo "[INFO] Found domain info: $domain_info"
@@ -404,21 +587,21 @@ check_opensearch_iam_enabled() {
 
     if [[ "$advanced_security_enabled" != "true" ]]; then
         echo "[FAIL] Advanced security is not enabled on OpenSearch domain $domain_name." 1>&2
-        SCRIPT_STATUS_OUTPUT=21
+        SCRIPT_STATUS_OUTPUT=64
     else
         echo "[OK] Advanced security is enabled on OpenSearch domain $domain_name."
     fi
 
     if [[ "$https_enforced" != "true" ]]; then
         echo "[FAIL] HTTPS is not enforced on OpenSearch domain $domain_name." 1>&2
-        SCRIPT_STATUS_OUTPUT=22
+        SCRIPT_STATUS_OUTPUT=65
     else
         echo "[OK] HTTPS is enforced on OpenSearch domain $domain_name."
     fi
 
     if [[ "$domain_created" != "true" || "$domain_deleted" != "false" ]]; then
         echo "[FAIL] OpenSearch domain $domain_name is either not created or marked as deleted." 1>&2
-        SCRIPT_STATUS_OUTPUT=23
+        SCRIPT_STATUS_OUTPUT=66
     else
         echo "[OK] OpenSearch domain $domain_name is created and not marked as deleted."
     fi
@@ -432,18 +615,20 @@ check_opensearch_iam_enabled() {
         echo "[OK] Access policy allows necessary access for domain $domain_name."
     else
         echo "[FAIL] Access policy does not allow access as required for domain $domain_name." 1>&2
-        SCRIPT_STATUS_OUTPUT=24
+        SCRIPT_STATUS_OUTPUT=67
     fi
 }
 
 # Call the function if COMPONENTS_TO_CHECK_IRSA_OS is not empty after excluding components
-if [[ -n "$COMPONENTS_TO_CHECK_IRSA_OS" && -n "$(echo "$COMPONENTS_TO_CHECK_IRSA_OS" | grep -v -F -x -f <(echo "$EXCLUDE_COMPONENTS_ARRAY"))" ]]; then
-    check_irsa_opensearch_requirements
-
-    check_opensearch_iam_enabled
+if [[ -n "$COMPONENTS_TO_CHECK_IRSA_OS" ]]; then
+    # Use grep -q to check for exclusion
+    if ! echo "$COMPONENTS_TO_CHECK_IRSA_OS" | grep -q -F -x -f <(printf '%s\n' "${EXCLUDE_COMPONENTS_ARRAY[@]}"); then
+        check_irsa_opensearch_requirements
+        check_opensearch_iam_enabled
+    fi
 fi
 
-check_aurora_iam_enabled() {
+check_aurora_cluster() {
     aurora_host="$1"
     aurora_port="$2"
     component="$3"
@@ -451,82 +636,67 @@ check_aurora_iam_enabled() {
     # Check if the Aurora URL is set
     if [[ -z "$aurora_host" || "$aurora_host" == "null" ]]; then
         echo "[FAIL] The Aurora host is not set. Please ensure that $component define it correctly in the Helm chart values." 1>&2
-        SCRIPT_STATUS_OUTPUT=18
+        SCRIPT_STATUS_OUTPUT=71
         return
     fi
 
     if [[ -z "$aurora_port" || "$aurora_port" == "null" ]]; then
         echo "[FAIL] The Aurora port is not set. Please ensure that $component define it correctly in the Helm chart values." 1>&2
-        SCRIPT_STATUS_OUTPUT=18
+        SCRIPT_STATUS_OUTPUT=72
         return
     fi
 
     echo "[INFO] Retrieved Aurora host for $component: $aurora_host:$aurora_port"
 
-    # Extract database name and region from the URL
-    # Assuming the format is similar to jdbc:aws-wrapper:postgresql://<host>:<port>/<database>?wrapperPlugins=iam
-    # TODO: modify that
-    db_name=$(echo "$aurora_url" | sed -E 's/^jdbc:[^:]+:postgresql:\/\/[^\/]+\/([^?]+).*/\1/')
-    region=$(echo "$aurora_url" | grep -oP '[a-z]{2}-[a-z]+-[0-9]+')
+    cluster_name=$(echo "$aurora_host" | sed -E 's/^([^.]+)\..*/\1/')
+    cluster_id=$(echo "$aurora_host" | sed -E 's/^[^.]+\.(.*)\.[a-z]{2}-[a-z]+-[0-9]+\.rds\.amazonaws\.com/\1/')
+    region=$(echo "$aurora_host" | sed -E 's/.*\.([a-z]{2}-[a-z]+-[0-9]+)\.rds\.amazonaws\.com.*/\1/')
 
     # Verify that both database name and region were extracted
-    if [[ -z "$db_name" || -z "$region" ]]; then
-        echo "[FAIL] Unable to parse the Aurora database name or region from $aurora_url." 1>&2
-        SCRIPT_STATUS_OUTPUT=19
+    if [[ -z "$cluster_id" || -z "$region" || -z "$cluster_name" ]]; then
+        echo "[FAIL] Unable to parse the Aurora cluster id or name or region from $aurora_host." 1>&2
+        SCRIPT_STATUS_OUTPUT=73
         return
     fi
 
-    echo "[INFO] Parsed Aurora database name: $db_name in region: $region"
+    echo "[INFO] Parsed Aurora database name: $cluster_name in region: $region"
 
-    # Run AWS CLI command to describe the Aurora DB cluster in the specified region
-    aws_rds_describe_cmd="aws rds describe-db-instances --db-instance-identifier \"$db_name\" --region \"$region\""
+    # Describe DB clusters and check if any match the aurora_cluster_identifier
+    aws_rds_describe_cmd="aws rds describe-db-clusters --region \"$region\""
     echo "[INFO] Running command: ${aws_rds_describe_cmd}"
-    db_info=$(eval "$aws_rds_describe_cmd")
+    db_clusters=$(eval "$aws_rds_describe_cmd")
+    db_cluster=$(echo "$db_clusters" | jq -e --arg identifier "$cluster_name" '.DBClusters[] | select(.DBClusterIdentifier == $identifier)')
 
-    # Check if the command was successful
-    if [[ $? -ne 0 || -z "$db_info" ]]; then
-        echo "[FAIL] Unable to retrieve Aurora DB information for $db_name in region $region." 1>&2
-        SCRIPT_STATUS_OUTPUT=20
-        return
+    # Check if the cluster was found
+    if [[ -n "$db_cluster" ]]; then
+        echo "[OK] Cluster matching the specified identifier '$cluster_name' found: $db_cluster."
     else
-        echo "[INFO] Found DB info: $db_info"
+        echo "[FAIL] No matching cluster found for the specified identifier '$cluster_name'." 1>&2
+        SCRIPT_STATUS_OUTPUT=74
     fi
 
     # Extract relevant fields
-    iam_db_auth_enabled=$(echo "$db_info" | jq -r '.DBInstances[].IAMDatabaseAuthenticationEnabled')
-    db_created=$(echo "$db_info" | jq -r '.DBInstances[].DBInstanceStatus')
+    iam_enabled=$(echo "$db_cluster" | jq -r '.IAMDatabaseAuthenticationEnabled')
+    db_available=$(echo "$db_cluster" | jq -r '.Status')
 
     # Check if IAM database authentication is enabled
-    if [[ "$iam_db_auth_enabled" != "true" ]]; then
-        echo "[FAIL] IAM Database Authentication is not enabled on Aurora DB instance $db_name." 1>&2
-        SCRIPT_STATUS_OUTPUT=21
+    if [[ "$iam_enabled" != "true" ]]; then
+        echo "[FAIL] IAM Database Authentication is not enabled on Aurora DB cluster $cluster_name." 1>&2
+        SCRIPT_STATUS_OUTPUT=75
     else
-        echo "[OK] IAM Database Authentication is enabled on Aurora DB instance $db_name."
+        echo "[OK] IAM Database Authentication is enabled on Aurora DB cluster $cluster_name."
     fi
 
     # Check if the database instance is created and available
-    if [[ "$db_created" != "available" ]]; then
-        echo "[FAIL] Aurora DB instance $db_name is not available (status: $db_created)." 1>&2
-        SCRIPT_STATUS_OUTPUT=22
+    if [[ "$db_available" != "available" ]]; then
+        echo "[FAIL] Aurora DB cluster $cluster_name is not available (status: $db_available)." 1>&2
+        SCRIPT_STATUS_OUTPUT=76
     else
-        echo "[OK] Aurora DB instance $db_name is created and available."
-    fi
-
-    access_policy=$(echo "$db_info" | jq -r '.DBInstances[].AccessPolicy')
-
-    # Check if the Access Policy allows access (basic check for "Effect": "Allow")
-    allow_access=$(echo "$access_policy" | jq -r '.Statement[] | select(.Effect == "Allow")')
-    if [[ -n "$allow_access" ]]; then
-         echo "[OK] Access policy allows necessary access for DB instance $db_name."
-    else
-        echo "[FAIL] Access policy does not allow access as required for DB instance $db_name." 1>&2
-         SCRIPT_STATUS_OUTPUT=24
+        echo "[OK] Aurora DB cluster $cluster_name is created and available."
     fi
 }
 
 check_irsa_aurora_requirements() {
-        # TODO: implement, for each service, check that env and arguments are set correclty (wrapper, etc), for keycloak check that our image is used
-
     # Filter and loop over components to check while excluding the excluded ones
     for component in $(echo "$COMPONENTS_TO_CHECK_IRSA_PG" | tr ',' ' '); do
         if [[ $component =~ $EXCLUDE_PATTERN ]]; then
@@ -537,19 +707,18 @@ check_irsa_aurora_requirements() {
         case "$component" in
             "identityKeycloak")
                 # Retrieve keycloak_enabled setting from HELM_CHART_VALUES, or fallback to HELM_CHART_DEFAULT_VALUES
-                keycloak_enabled=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.postgresql.enabled // empty")
+                keycloak_enabled=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.postgresql.enabled")
 
-                if [[ -z "$keycloak_enabled" ]]; then
-                    # Fallback to HELM_CHART_DEFAULT_VALUES if not defined in HELM_CHART_VALUES
-                    keycloak_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.postgresql.enabled // empty")
+                if [[ "$keycloak_enabled" == "null" ]]; then
+                    keycloak_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.postgresql.enabled")
                 fi
 
                 if [[ -z "$keycloak_enabled" ]]; then
                     echo "[FAIL] $component.postgresql.enabled is not defined in your helm values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=30
+                    SCRIPT_STATUS_OUTPUT=81
                 elif [[ "$keycloak_enabled" != "false" ]]; then
                     echo "[FAIL] $component must have postgresql.enabled set to false in your helm values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=31
+                    SCRIPT_STATUS_OUTPUT=82
                 else
                     echo "[OK] $component.postgresql.enabled is correctly set to false in your helm values."
                 fi
@@ -561,11 +730,11 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$keycloak_image" ]]; then
                     echo "[FAIL] identityKeycloak.image is not defined in both values and default values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=38
+                    SCRIPT_STATUS_OUTPUT=83
                 else
                     if [[ "$keycloak_image" != *"camunda/keycloak"* ]]; then
                         echo "[FAIL] The identityKeycloak.image must contain 'camunda/keycloak' in its name to support IRSA tooling." 1>&2
-                        SCRIPT_STATUS_OUTPUT=39
+                        SCRIPT_STATUS_OUTPUT=84
                     else
                         echo "[OK] identityKeycloak.image is set correctly: $keycloak_image"
                     fi
@@ -579,7 +748,7 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$identity_keycloak_host" ]]; then
                     echo "[FAIL] identityKeycloak.externalDatabase.host is not defined in your helm values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=40
+                    SCRIPT_STATUS_OUTPUT=85
                 else
                     echo "[INFO] identityKeycloak.externalDatabase.host retrieved from your helm values: $identity_keycloak_host"
                 fi
@@ -591,7 +760,7 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$identity_keycloak_port" ]]; then
                     echo "[FAIL] identityKeycloak.externalDatabase.port is not defined in your helm values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=41
+                    SCRIPT_STATUS_OUTPUT=86
                 else
                     echo "[INFO] identityKeycloak.externalDatabase.port retrieved from your helm values: $identity_keycloak_port"
                 fi
@@ -603,70 +772,60 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$keycloak_external_username" ]]; then
                     echo "[FAIL] $component.externalDatabase.user is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=41
+                    SCRIPT_STATUS_OUTPUT=87
                 else
                     echo "[INFO] $component.externalDatabase.user retrieved from your helm values or defaults: $keycloak_external_username"
                 fi
 
-                check_aurora_iam_enabled "$identity_keycloak_host" "$identity_keycloak_port" "$component"
+                check_aurora_cluster "$identity_keycloak_host" "$identity_keycloak_port" "$component"
 
-                # TODO: check connectivity to the database
+                if $SPAWN_POD; then
+                    echo "[INFO] Network flow verification for $component with spawn of pods is enabled (use the -s flag if you want to disable it)."
+                    check_connectivity_with_nmap "$component" "$identity_keycloak_host" "$identity_keycloak_port"
+                else
+                    echo "[INFO] Network flow verification for $component with spawn of pods is disabled (-s flag). No pods will be spawned for component verification."
+                fi
 
                 # Check additional requirements for identityKeycloak
-                # Retrieve extra environment variables for the component
-                extra_env_vars=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_EXTRA_ARGS\" or .name == \"KEYCLOAK_JDBC_PARAMS\" or .name == \"KEYCLOAK_JDBC_DRIVER\")")
+                # Initialize validity flags
+                keycloak_extra_args_valid=true
+                keycloak_jdbc_params_valid=true
+                keycloak_jdbc_driver_valid=true
 
-                # Initialize flags for checking individual variables
-                keycloak_extra_args_present=false
-                keycloak_jdbc_params_present=false
-                keycloak_jdbc_driver_present=false
+                # Retrieve values directly from HELM_CHART_VALUES using jq
+                keycloak_extra_args=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_EXTRA_ARGS\") | .value // empty")
+                if [[ -z "$keycloak_extra_args" ]]; then
+                    echo "[FAIL] KEYCLOAK_EXTRA_ARGS is not defined." 1>&2
+                    keycloak_extra_args_valid=false
+                elif [[ ! "$keycloak_extra_args" == *"--db-driver=software.amazon.jdbc.Driver"* ]]; then
+                    echo "[FAIL] KEYCLOAK_EXTRA_ARGS must contain '--db-driver=software.amazon.jdbc.Driver'." 1>&2
+                    keycloak_extra_args_valid=false
+                fi
 
-                # Iterate through the extra environment variables and check for the required ones
-                if [[ -z "$extra_env_vars" ]]; then
-                    echo "[FAIL] Required environment variables for .${component}.extraEnvVars[] are not set correctly: you must define KEYCLOAK_EXTRA_ARGS, KEYCLOAK_JDBC_PARAMS and KEYCLOAK_JDBC_DRIVER with appropriate values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=32
+                keycloak_jdbc_params=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_JDBC_PARAMS\") | .value // empty")
+                if [[ -z "$keycloak_jdbc_params" ]]; then
+                    echo "[FAIL] KEYCLOAK_JDBC_PARAMS is not defined." 1>&2
+                    keycloak_jdbc_params_valid=false
+                elif [[ "$keycloak_jdbc_params" != "wrapperPlugins=iam&ssl=true&sslmode=require" ]]; then
+                    echo "[FAIL] KEYCLOAK_JDBC_PARAMS must be 'wrapperPlugins=iam&ssl=true&sslmode=require'." 1>&2
+                    keycloak_jdbc_params_valid=false
+                fi
+
+                keycloak_jdbc_driver=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_JDBC_DRIVER\") | .value // empty")
+                if [[ -z "$keycloak_jdbc_driver" ]]; then
+                    echo "[FAIL] KEYCLOAK_JDBC_DRIVER is not defined." 1>&2
+                    keycloak_jdbc_driver_valid=false
+                elif [[ "$keycloak_jdbc_driver" != "aws-wrapper:postgresql" ]]; then
+                    echo "[FAIL] KEYCLOAK_JDBC_DRIVER must be 'aws-wrapper:postgresql'." 1>&2
+                    keycloak_jdbc_driver_valid=false
+                fi
+
+                # Check if all required environment variables are present and valid
+                if $keycloak_extra_args_valid && $keycloak_jdbc_params_valid && $keycloak_jdbc_driver_valid; then
+                    echo "[OK] Required environment variables for $component are set correctly."
                 else
-                    while IFS= read -r env_var; do
-                        var_name=$(echo "$env_var" | jq -r '.name')
-                        var_value=$(echo "$env_var" | jq -r '.value')
-
-                        if [[ "$var_name" == "KEYCLOAK_EXTRA_ARGS" ]]; then
-                            keycloak_extra_args_present=true
-                            # Check if it contains the required db-driver argument
-                            if [[ "$var_value" == *"--db-driver=software.amazon.jdbc.Driver"* ]]; then
-                                echo "[OK] $var_name is set and contains the required driver argument."
-                            else
-                                echo "[FAIL] $var_name must include '--db-driver=software.amazon.jdbc.Driver'." 1>&2
-                                SCRIPT_STATUS_OUTPUT=33
-                            fi
-                        elif [[ "$var_name" == "KEYCLOAK_JDBC_PARAMS" ]]; then
-                            keycloak_jdbc_params_present=true
-                            # Validate the value of KEYCLOAK_JDBC_PARAMS
-                            if [[ "$var_value" == *"wrapperPlugins=iam"* ]]; then
-                                echo "[OK] $var_name is correctly set to '$var_value'."
-                            else
-                                echo "[FAIL] $var_name must include 'wrapperPlugins=iam'." 1>&2
-                                SCRIPT_STATUS_OUTPUT=34
-                            fi
-                        elif [[ "$var_name" == "KEYCLOAK_JDBC_DRIVER" ]]; then
-                            keycloak_jdbc_driver_present=true
-                            # Validate the value of KEYCLOAK_JDBC_DRIVER
-                            if [[ "$var_value" == "aws-wrapper:postgresql" ]]; then
-                                echo "[OK] $var_name is correctly set to '$var_value'."
-                            else
-                                echo "[FAIL] $var_name must be set to 'aws-wrapper:postgresql'." 1>&2
-                                SCRIPT_STATUS_OUTPUT=35
-                            fi
-                        fi
-                    done <<< "$extra_env_vars"
-
-                    # Check if all required environment variables are present
-                    if ! $keycloak_extra_args_present || ! $keycloak_jdbc_params_present || ! $keycloak_jdbc_driver_present; then
-                        echo "[FAIL] Some required environment variables for $component are missing (KEYCLOAK_EXTRA_ARGS=$keycloak_extra_args_present, KEYCLOAK_JDBC_PARAMS=$keycloak_jdbc_params_present, KEYCLOAK_JDBC_DRIVER=$keycloak_jdbc_driver_present)." 1>&2
-                        SCRIPT_STATUS_OUTPUT=32
-                    else
-                        echo "[OK] All required environment variables for $component are set."
-                    fi
+                    echo "[FAIL] One or more required environment variables for $component are not set correctly." 1>&2
+                    SCRIPT_STATUS_OUTPUT=87
                 fi
 
                 ;;
@@ -681,10 +840,10 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$identity_enabled" ]]; then
                     echo "[FAIL] $component.externalDatabase.enabled is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=33
+                    SCRIPT_STATUS_OUTPUT=88
                 elif [[ "$identity_enabled" != "true" ]]; then
                     echo "[FAIL] $component.externalDatabase.enabled must be set to true." 1>&2
-                    SCRIPT_STATUS_OUTPUT=34
+                    SCRIPT_STATUS_OUTPUT=89
                 else
                     echo "[OK] $component.externalDatabase.enabled is correctly set to true."
                 fi
@@ -697,7 +856,7 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$identity_external_host" ]]; then
                     echo "[FAIL] $component.externalDatabase.host is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=40
+                    SCRIPT_STATUS_OUTPUT=90
                 else
                     echo "[INFO] $component.externalDatabase.host retrieved from your helm values or defaults: $identity_external_host"
                 fi
@@ -710,7 +869,7 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$identity_external_port" ]]; then
                     echo "[FAIL] $component.externalDatabase.port is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=41
+                    SCRIPT_STATUS_OUTPUT=91
                 else
                     echo "[INFO] $component.externalDatabase.port retrieved from your helm values or defaults: $identity_external_port"
                 fi
@@ -722,58 +881,56 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$identity_external_username" ]]; then
                     echo "[FAIL] $component.externalDatabase.username is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=41
+                    SCRIPT_STATUS_OUTPUT=92
                 else
                     echo "[INFO] $component.externalDatabase.username retrieved from your helm values or defaults: $identity_external_username"
                 fi
 
-                check_aurora_iam_enabled "$identity_external_host" "$identity_external_port" "$component"
+                check_aurora_cluster "$identity_external_host" "$identity_external_port" "$component"
 
-                # TODO: check connectivity to the database
+                if $SPAWN_POD; then
+                    echo "[INFO] Network flow verification for $component with spawn of pods is enabled (use the -s flag if you want to disable it)."
+                    check_connectivity_with_nmap "$component" "$identity_external_host" "$identity_external_port"
+                else
+                    echo "[INFO] Network flow verification for $component with spawn of pods is disabled (-s flag). No pods will be spawned for component verification."
+                fi
 
                 # Check additional requirements for identity environment variables
-                identity_env_vars=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.env[]? | select(.name == \"SPRING_DATASOURCE_URL\" or .name == \"SPRING_DATASOURCE_DRIVER_CLASS_NAME\")")
+                spring_datasource_url=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.env[]? | select(.name == \"SPRING_DATASOURCE_URL\") | .value // empty")
+                spring_datasource_driver=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.env[]? | select(.name == \"SPRING_DATASOURCE_DRIVER_CLASS_NAME\") | .value // empty")
 
-                # Initialize flags for checking individual variables
-                spring_datasource_url_present=false
-                spring_datasource_driver_present=false
+                # Initialize validity flags
+                spring_datasource_url_valid=true
+                spring_datasource_driver_valid=true
 
-                if [[ -z "$identity_env_vars" ]]; then
-                    echo "[FAIL] Required environment variables for $component are not set correctly, please define .${component}.env: SPRING_DATASOURCE_URL and SPRING_DATASOURCE_DRIVER_CLASS_NAME." 1>&2
-                    SCRIPT_STATUS_OUTPUT=35
+                # Validate SPRING_DATASOURCE_URL
+                if [[ -z "$spring_datasource_url" ]]; then
+                    echo "[FAIL] SPRING_DATASOURCE_URL for $component is not defined." 1>&2
+                    spring_datasource_url_valid=false
+                elif [[ ! "$spring_datasource_url" == jdbc:aws-wrapper:postgresql://* || ! "$spring_datasource_url" == *"wrapperPlugins=iam"* ]]; then
+                    echo "[FAIL] SPRING_DATASOURCE_URL for $component must start with 'jdbc:aws-wrapper:postgresql://' and contain 'wrapperPlugins=iam'." 1>&2
+                    spring_datasource_url_valid=false
                 else
-                    while IFS= read -r env_var; do
-                        var_name=$(echo "$env_var" | jq -r '.name')
-                        var_value=$(echo "$env_var" | jq -r '.value')
+                    echo "[OK] SPRING_DATASOURCE_URL for $component is correctly set to '$spring_datasource_url'."
+                fi
 
-                        if [[ "$var_name" == "SPRING_DATASOURCE_URL" ]]; then
-                            spring_datasource_url_present=true
-                            # Validate the value of SPRING_DATASOURCE_URL
-                            if [[ "$var_value" == jdbc:aws-wrapper:postgresql://* && "$var_value" == *"wrapperPlugins=iam"* ]]; then
-                                echo "[OK] $var_name is correctly set to '$var_value'."
-                            else
-                                echo "[FAIL] $var_name must start with 'jdbc:aws-wrapper:postgresql://' and contain 'wrapperPlugins=iam'." 1>&2
-                                SCRIPT_STATUS_OUTPUT=36
-                            fi
-                        elif [[ "$var_name" == "SPRING_DATASOURCE_DRIVER_CLASS_NAME" ]]; then
-                            spring_datasource_driver_present=true
-                            # Validate the value of SPRING_DATASOURCE_DRIVER_CLASS_NAME
-                            if [[ "$var_value" == "software.amazon.jdbc.Driver" ]]; then
-                                echo "[OK] $var_name is correctly set to '$var_value'."
-                            else
-                                echo "[FAIL] $var_name must be set to 'software.amazon.jdbc.Driver'." 1>&2
-                                SCRIPT_STATUS_OUTPUT=37
-                            fi
-                        fi
-                    done <<< "$identity_env_vars"
+                # Validate SPRING_DATASOURCE_DRIVER_CLASS_NAME
+                if [[ -z "$spring_datasource_driver" ]]; then
+                    echo "[FAIL] SPRING_DATASOURCE_DRIVER_CLASS_NAME for $component is not defined." 1>&2
+                    spring_datasource_driver_valid=false
+                elif [[ "$spring_datasource_driver" != "software.amazon.jdbc.Driver" ]]; then
+                    echo "[FAIL] SPRING_DATASOURCE_DRIVER_CLASS_NAME for $component must be set to 'software.amazon.jdbc.Driver'." 1>&2
+                    spring_datasource_driver_valid=false
+                else
+                    echo "[OK] SPRING_DATASOURCE_DRIVER_CLASS_NAME for $component is correctly set to '$spring_datasource_driver'."
+                fi
 
-                    # Check if all required environment variables are present
-                    if ! $spring_datasource_url_present || ! $spring_datasource_driver_present; then
-                        echo "[FAIL] Some required environment variables for $component are missing (SPRING_DATASOURCE_URL=$spring_datasource_url_present, SPRING_DATASOURCE_DRIVER_CLASS_NAME=$spring_datasource_driver_present)." 1>&2
-                        SCRIPT_STATUS_OUTPUT=35
-                    else
-                        echo "[OK] All required environment variables for $component are set."
-                    fi
+                # Check if all required environment variables are present and valid
+                if $spring_datasource_url_valid && $spring_datasource_driver_valid; then
+                    echo "[OK] All required environment variables for $component are set correctly."
+                else
+                    echo "[FAIL] One or more required environment variables for $component are not set correctly." 1>&2
+                    SCRIPT_STATUS_OUTPUT=93
                 fi
 
                 ;;
@@ -790,7 +947,7 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$web_modeler_url" ]]; then
                     echo "[FAIL] $component.restapi.externalDatabase.url is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=36
+                    SCRIPT_STATUS_OUTPUT=94
                 else
                     # Regex to capture host and optional port in the required JDBC URL format
                     if [[ "$web_modeler_url" =~ ^jdbc:aws-wrapper:postgresql://([^:/]+)(:[0-9]+)?/[^?]+(\?wrapperPlugins=iam)$ ]]; then
@@ -807,7 +964,7 @@ check_irsa_aurora_requirements() {
                         fi
                     else
                         echo "[FAIL] $component.restapi.externalDatabase.url must be a valid JDBC URL starting with jdbc:aws-wrapper:postgresql://<host>[:<port>]/<database>?wrapperPlugins=iam for IRSA usage." 1>&2
-                        SCRIPT_STATUS_OUTPUT=37
+                        SCRIPT_STATUS_OUTPUT=95
                     fi
                 fi
 
@@ -818,27 +975,34 @@ check_irsa_aurora_requirements() {
 
                 if [[ -z "$web_modeler_user" ]]; then
                     echo "[FAIL] $component.restapi.externalDatabase.user is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=38
+                    SCRIPT_STATUS_OUTPUT=96
                 else
                     echo "[OK] $component.restapi.externalDatabase.user is correctly set: $web_modeler_user"
                 fi
 
-                check_aurora_iam_enabled "$web_modeler_db_host" "$web_modeler_db_port" "$component"
-                # TODO: check connection
+                check_aurora_cluster "$web_modeler_db_host" "$web_modeler_db_port" "$component"
+
+                if $SPAWN_POD; then
+                    echo "[INFO] Network flow verification for $component with spawn of pods is enabled (use the -s flag if you want to disable it)."
+                    check_connectivity_with_nmap "$component" "$web_modeler_db_host" "$web_modeler_db_port"
+                else
+                    echo "[INFO] Network flow verification for $component with spawn of pods is disabled (-s flag). No pods will be spawned for component verification."
+                fi
 
                 # Retrieve the SPRING_DATASOURCE_DRIVER_CLASS_NAME variable for the component
                 spring_datasource_driver_value=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.restapi.env[]? | select(.name == \"SPRING_DATASOURCE_DRIVER_CLASS_NAME\") | .value // empty")
+                echo "[INFO] Extra env vars for $component: $spring_datasource_driver_value"
 
                 # Check if the variable is set and validate its value
                 if [[ -z "$spring_datasource_driver_value" ]]; then
                     echo "[FAIL] Required environment variable SPRING_DATASOURCE_DRIVER_CLASS_NAME for ${component}.restapi.env is not set." 1>&2
-                    SCRIPT_STATUS_OUTPUT=36
+                    SCRIPT_STATUS_OUTPUT=97
                 else
                     if [[ "$spring_datasource_driver_value" == "software.amazon.jdbc.Driver" ]]; then
                         echo "[OK] SPRING_DATASOURCE_DRIVER_CLASS_NAME is correctly set to '$spring_datasource_driver_value'."
                     else
                         echo "[FAIL] SPRING_DATASOURCE_DRIVER_CLASS_NAME must be set to 'software.amazon.jdbc.Driver'." 1>&2
-                        SCRIPT_STATUS_OUTPUT=37
+                        SCRIPT_STATUS_OUTPUT=98
                     fi
                 fi
                 ;;
@@ -850,16 +1014,17 @@ check_irsa_aurora_requirements() {
     done
 }
 
-if [[ -n "$COMPONENTS_TO_CHECK_IRSA_PG" && -n "$(echo "$COMPONENTS_TO_CHECK_IRSA_PG" | grep -v -F -x -f <(echo "$EXCLUDE_COMPONENTS_ARRAY"))" ]]; then
-    check_irsa_aurora_requirements
 
-    check_aurora_iam_enabled
-    exit 80
+if [[ -n "$COMPONENTS_TO_CHECK_IRSA_PG" ]]; then
+    # Use grep -q to check for exclusion
+    if ! echo "$COMPONENTS_TO_CHECK_IRSA_PG" | grep -q -F -x -f <(printf '%s\n' "${EXCLUDE_COMPONENTS_ARRAY[@]}"); then
+        check_irsa_aurora_requirements
+    fi
 fi
 
  check_service_account_enabled() {
-    local component="$1"
-    local service_accounts="$2"
+    component="$1"
+    service_accounts="$2"
 
     # Check if {component].serviceAccount.enabled exists in HELM_CHART_VALUES first otherwise, fallback on default
     enabled_value=$(echo "$service_accounts" | jq -r --arg comp "$component" '.[$comp].serviceAccount.enabled')
@@ -870,7 +1035,7 @@ fi
     # Check if the serviceAccount is disabled
     if [[ "$enabled_value" == "false" ]]; then
         echo "[FAIL] Cannot expect IRSA to work if service account for $component is not enabled ($component.serviceAccount.enabled: false). You can exclude it from the checks using EXCLUDE_COMPONENTS arg." 1>&2
-        SCRIPT_STATUS_OUTPUT=6
+        SCRIPT_STATUS_OUTPUT=101
     else
         echo "[OK] Service account for $component is enabled"
     fi
@@ -878,12 +1043,12 @@ fi
 
 # Function to check if the eks.amazonaws.com/role-arn annotation is present and not empty
 check_role_arn_annotation_service_account() {
-    local service_account_name="$1"
-    local component_name=$2
-    local category=$3
+    service_account_name="$1"
+    component_name=$2
+    category=$3
 
     echo "[INFO] Check present of eks.amazonaws.com/role-arn annotation on the serviceAccount $service_account_name"
-    local kubectl_command="kubectl get serviceaccount \"$service_account_name\" -n \"$NAMESPACE\" -o json"
+    kubectl_command="kubectl get serviceaccount \"$service_account_name\" -n \"$NAMESPACE\" -o json"
     echo "[INFO] Running command: $kubectl_command"
     annotations=$(eval "$kubectl_command")
     echo "[INFO] Command output: $annotations"
@@ -892,7 +1057,7 @@ check_role_arn_annotation_service_account() {
 
     if [[ -z "$role_arn" ]]; then
         echo "[FAIL] The service account $service_account_name does not have a valid eks.amazonaws.com/role-arn annotation. You must add it in the chart, see https://docs.camunda.io/docs/self-managed/setup/deploy/amazon/amazon-eks/eks-helm/" 1>&2
-        SCRIPT_STATUS_OUTPUT=7
+        SCRIPT_STATUS_OUTPUT=110
     else
         echo "[OK] The service account $service_account_name is bound to the role $role_arn by the eks.amazonaws.com/role-arn annotation."
 
@@ -917,18 +1082,19 @@ verify_role_arn() {
     echo "[INFO] Running command: ${aws_iam_get_role_cmd}"
     role_output=$(eval "$aws_iam_get_role_cmd")
 
+    # shellcheck disable=SC2181
     if [ $? -eq 0 ]; then
         echo "[OK] Role ARN $role_arn (component=$component,serviceAccount=$service_account_name) is valid: $role_output"
     else
         echo "[FAIL] Role ARN $role_arn (component=$component,serviceAccount=$service_account_name) is invalid or does not exist." 1>&2
-        SCRIPT_STATUS_OUTPUT=9
+        SCRIPT_STATUS_OUTPUT=120
     fi
 
     allow_statement=$(echo "$role_output" | jq -r '.Role.AssumeRolePolicyDocument.Statement[] | select(.Effect == "Allow") | select(.Action == "sts:AssumeRoleWithWebIdentity")')
 
     if [ -z "$allow_statement" ]; then
         echo "[FAIL] Role=$role_arn: AssumeRolePolicyDocument does not contain an Allow statement with Action: sts:AssumeRoleWithWebIdentity." 1>&2
-        SCRIPT_STATUS_OUTPUT=11
+        SCRIPT_STATUS_OUTPUT=121
     else
         echo "[OK] Role=$role_arn: AssumeRolePolicyDocument does contain an Allow statement with Action: sts:AssumeRoleWithWebIdentity."
     fi
@@ -937,7 +1103,7 @@ verify_role_arn() {
 
     if [[ -z "$federated_principal" || "$federated_principal" != arn:aws:iam::*:oidc-provider/oidc.eks.* ]]; then
         echo "[FAIL] Role=$role_arn: No valid Federated Principal found in the Allow statement." 1>&2
-        SCRIPT_STATUS_OUTPUT=12
+        SCRIPT_STATUS_OUTPUT=122
     else
         echo "[OK] Role=$role_arn: Federated Principal found in the Allow statement."
     fi
@@ -948,7 +1114,7 @@ get_aws_identity_from_job() {
     service_account_name=$2
     expected_role_arn=$3
 
-    job_name="aws-identity-check-${component}"
+    job_name="aws-identity-check-$(echo "$component" | tr '[:upper:]' '[:lower:]')"
 
     echo "[INFO] Creating job '$job_name' with service account '$service_account_name' to check AWS identity of component=$component."
     cat <<EOF | kubectl apply -f -
@@ -969,21 +1135,24 @@ spec:
 EOF
 
     # Check for errors in job creation
+    # shellcheck disable=SC2181
     if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to create job $job_name." 1>&2
-        SCRIPT_STATUS_OUTPUT=13
+        SCRIPT_STATUS_OUTPUT=130
         return $SCRIPT_STATUS_OUTPUT
     fi
 
 
     # Log and execute the wait command
-    local wait_command="kubectl wait --for=condition=complete --timeout=60s job/$job_name -n \"$NAMESPACE\""
+    wait_command="kubectl wait --for=condition=complete --timeout=60s job/$job_name -n \"$NAMESPACE\""
     echo "[INFO] Running command: $wait_command"
     eval "$wait_command"
+
+    # shellcheck disable=SC2181
     if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Job $job_name did not complete successfully." 1>&2
         kubectl delete job "$job_name" -n "$NAMESPACE" --grace-period=0 --force >/dev/null 2>&1
-        SCRIPT_STATUS_OUTPUT=13
+        SCRIPT_STATUS_OUTPUT=131
         return $SCRIPT_STATUS_OUTPUT
     fi
 
@@ -994,6 +1163,8 @@ EOF
     delete_command="kubectl delete job \"$job_name\" -n \"$NAMESPACE\" --grace-period=0 --force"
     echo "[INFO] Running command: $delete_command"
     eval "$delete_command"
+
+    # shellcheck disable=SC2181
     if [ $? -ne 0 ]; then
         # non-fatal error
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to delete job $job_name." 1>&2
@@ -1001,9 +1172,11 @@ EOF
 
     # Check if the output is valid JSON
     echo "$output" | jq .
+
+    # shellcheck disable=SC2181
     if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Output of aws sts get identity caller job is not valid JSON." 1>&2
-        SCRIPT_STATUS_OUTPUT=13
+        SCRIPT_STATUS_OUTPUT=132
         return $SCRIPT_STATUS_OUTPUT
     fi
 
@@ -1011,7 +1184,7 @@ EOF
     pod_arn=$(echo "$output" | jq -r '.Arn')
     if [ -z "$pod_arn" ]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to extract ARN from job output." 1>&2
-        SCRIPT_STATUS_OUTPUT=13
+        SCRIPT_STATUS_OUTPUT=133
         return $SCRIPT_STATUS_OUTPUT
     fi
 
@@ -1031,34 +1204,193 @@ EOF
     # Ensure that the STS assumed identity matches the expected role
     if [[ "$pod_arn_cleaned" != "$expected_role_cleaned" ]]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Job ARN ($pod_arn_cleaned) does not match expected role ARN ($expected_role_cleaned). IRSA is not working as expected; please verify why the role is not injected." 1>&2
-        SCRIPT_STATUS_OUTPUT=13
+        SCRIPT_STATUS_OUTPUT=134
         return $SCRIPT_STATUS_OUTPUT
     else
         echo "[OK] (component=$component,serviceAccount=$service_account_name) Job ARN ($pod_arn_cleaned) matches expected role ARN ($expected_role_cleaned). IRSA is working as expected."
     fi
 }
 
-# Check PostgreSQL service accounts are enabled
-for component in $(echo "$PG_SERVICE_ACCOUNTS" | jq -r 'keys[]'); do
-    check_service_account_enabled "$component" "$PG_SERVICE_ACCOUNTS"
+verify_rds_permissions() {
+    role_arn=$1
+    role_name=$(basename "$role_arn")
+    component=$2
+    service_account_name=$3
+    echo "[INFO] Verifying RDS permissions for role ARN (component=$component, serviceAccount=$service_account_name): $role_arn"
 
-    service_account_name=$(echo "$PG_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].serviceAccountName')
-    if [[ -z "$service_account_name" ]]; then
-        echo "[FAIL] Service account name for component '$component' is empty. Skipping verification." 1>&2
-        SCRIPT_STATUS_OUTPUT=8
-        continue
+    # Fetch the role's attached policies
+    role_policies_cmd="aws iam list-attached-role-policies --role-name \"$role_name\""
+    echo "[INFO] Running command: ${role_policies_cmd}"
+    attached_policies=$(eval "$role_policies_cmd")
+
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] Unable to list attached policies for role ARN $role_arn (component=$component, serviceAccount=$service_account_name)." 1>&2
+        SCRIPT_STATUS_OUTPUT=140
+        return
     fi
 
-    check_role_arn_annotation_service_account "$service_account_name" "$component" "pg"
+    # Iterate over attached policies and check their permissions
+    policy_count=$(echo "$attached_policies" | jq -r '.AttachedPolicies | length')
+    echo "[INFO] Found $policy_count attached policies to $role_arn"
 
-    role_arn=$(echo "$PG_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].roleArn')
+    permission_found=false
+
+    for (( i=0; i<policy_count; i++ )); do
+        policy_arn=$(echo "$attached_policies" | jq -r ".AttachedPolicies[$i].PolicyArn")
+        policy_version_id=$(aws iam get-policy --policy-arn "$policy_arn" | jq -r '.Policy.DefaultVersionId')
+        echo "[INFO] Checking $role_arn attached policy ($policy_arn in version $policy_version_id): $attached_policies"
+
+        # Fetch the policy document
+        policy_document_cmd="aws iam get-policy-version --policy-arn \"$policy_arn\" --version-id \"$policy_version_id\""
+        echo "[INFO] Running command: ${policy_document_cmd}"
+        policy_output=$(eval "$policy_document_cmd")
+
+        # shellcheck disable=SC2181
+        if [ $? -ne 0 ]; then
+            echo "[FAIL] Unable to retrieve policy document for policy ARN $policy_arn." 1>&2
+            SCRIPT_STATUS_OUTPUT=141
+            continue
+        fi
+        echo "[INFO] Checking $policy_arn in version $policy_version_id, PolicyDocument: $policy_output"
+
+        # Check for permissions
+        statements=$(echo "$policy_output" | jq -c '.PolicyVersion.Document.Statement[] | select(.Effect == "Allow")')
+
+        # Iterate over each statement correctly
+        while IFS= read -r statement; do
+            actions=$(echo "$statement" | jq -r '.Action | if type == "array" then join(",") else . end')
+            resources=$(echo "$statement" | jq -r '.Resource | if type == "array" then join(",") else . end')
+
+            # Check for permissions
+            if [[ "$actions" == *"rds-db:connect"* || "$actions" == *"rds-db:"* ]]; then
+                echo "[OK] Role=$role_arn has permission to perform RDS actions: $actions on resources: $resources."
+                permission_found=true
+                break  2 # break the two loops
+            fi
+        done <<< "$statements"
+    done
+
+    if [ "$permission_found" = false ]; then
+        echo "[FAIL] Role=$role_arn does not have permissions to perform 'rds-db:connect' or 'rds-db:*'." 1>&2
+        SCRIPT_STATUS_OUTPUT=142
+    fi
+}
+
+verify_opensearch_permissions() {
+    role_arn=$1
+    role_name=$(basename "$role_arn")
+    component=$2
+    service_account_name=$3
+    echo "[INFO] Verifying OpenSearch permissions for role ARN (component=$component, serviceAccount=$service_account_name): $role_arn"
+
+    # Fetch the role's attached policies
+    role_policies_cmd="aws iam list-attached-role-policies --role-name \"$role_name\""
+    echo "[INFO] Running command: ${role_policies_cmd}"
+    attached_policies=$(eval "$role_policies_cmd")
+
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] Unable to list attached policies for role ARN $role_arn (component=$component, serviceAccount=$service_account_name)." 1>&2
+        SCRIPT_STATUS_OUTPUT=150
+        return
+    fi
+
+    # Iterate over attached policies and check their permissions
+    policy_count=$(echo "$attached_policies" | jq -r '.AttachedPolicies | length')
+    echo "[INFO] Found $policy_count attached policies to $role_arn"
+
+    permission_found=false
+
+    for (( i=0; i<policy_count; i++ )); do
+        policy_arn=$(echo "$attached_policies" | jq -r ".AttachedPolicies[$i].PolicyArn")
+        policy_version_id=$(aws iam get-policy --policy-arn "$policy_arn" | jq -r '.Policy.DefaultVersionId')
+        echo "[INFO] Checking $role_arn attached policy ($policy_arn in version $policy_version_id): $attached_policies"
+
+        # Fetch the policy document
+        policy_document_cmd="aws iam get-policy-version --policy-arn \"$policy_arn\" --version-id \"$policy_version_id\""
+        echo "[INFO] Running command: ${policy_document_cmd}"
+        policy_output=$(eval "$policy_document_cmd")
+
+        # shellcheck disable=SC2181
+        if [ $? -ne 0 ]; then
+            echo "[FAIL] Unable to retrieve policy document for policy ARN $policy_arn." 1>&2
+            SCRIPT_STATUS_OUTPUT=151
+            continue
+        fi
+        echo "[INFO] Checking $policy_arn in version $policy_version_id, PolicyDocument: $policy_output"
+
+        # Check for permissions
+        statements=$(echo "$policy_output" | jq -c '.PolicyVersion.Document.Statement[] | select(.Effect == "Allow")')
+
+        # Iterate over each statement correctly
+        while IFS= read -r statement; do
+            actions=$(echo "$statement" | jq -r '.Action | if type == "array" then join(",") else . end')
+            resources=$(echo "$statement" | jq -r '.Resource | if type == "array" then join(",") else . end')
+
+            # Ensure the resource is not empty
+            if [[ -z "$resources" ]]; then
+                continue  # Skip empty resources
+            fi
+
+            # Check for OpenSearch permissions
+            if [[ "$actions" == *"es:*"* || "$actions" == *"es:ESHttpGet"* ]]; then
+                echo "[OK] Role=$role_arn has permission to perform OpenSearch actions: $actions on resources: $resources."
+                permission_found=true
+                break 2  # Break out of both loops
+            fi
+        done <<< "$statements"
+    done
+
+    if [ "$permission_found" = false ]; then
+        echo "[FAIL] Role=$role_arn does not have permissions to perform 'es:*' or 'es:ESHttpGet'." 1>&2
+        SCRIPT_STATUS_OUTPUT=152
+    fi
+}
+
+verify_service_accounts() {
+    component=$1
+    service_type=$2  # 'pg' or 'os'
+
+    # Check if the service account is enabled for the component
+    if [[ "$service_type" == "pg" ]]; then
+        check_service_account_enabled "$component" "$PG_SERVICE_ACCOUNTS"
+
+        service_account_name=$(echo "$PG_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].serviceAccountName')
+        role_arn=$(echo "$PG_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].roleArn')
+    elif [[ "$service_type" == "os" ]]; then
+        check_service_account_enabled "$component" "$OS_SERVICE_ACCOUNTS"
+
+        service_account_name=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].serviceAccountName')
+        role_arn=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].roleArn')
+    else
+        echo "[FAIL] Invalid service type '$service_type' provided. Expected 'pg' or 'os'." >&2
+        SCRIPT_STATUS_OUTPUT=161
+        return
+    fi
+
+    if [[ -z "$service_account_name" ]]; then
+        echo "[FAIL] Service account name for component '$component' is empty. Skipping verification." 1>&2
+        SCRIPT_STATUS_OUTPUT=162
+        return
+    fi
+
+    check_role_arn_annotation_service_account "$service_account_name" "$component" "$service_type"
+
     if [[ -z "$role_arn" ]]; then
         echo "[FAIL] RoleArn name for component '$component' is empty. Skipping verification." 1>&2
-        SCRIPT_STATUS_OUTPUT=10
-        continue
+        SCRIPT_STATUS_OUTPUT=163
+        return
     fi
 
     verify_role_arn "$role_arn" "$component" "$service_account_name"
+
+    # Call the appropriate permission verification function
+    if [[ "$service_type" == "pg" ]]; then
+        verify_rds_permissions "$role_arn" "$component" "$service_account_name"
+    elif [[ "$service_type" == "os" ]]; then
+        verify_opensearch_permissions "$role_arn" "$component" "$service_account_name"
+    fi
 
     if $SPAWN_POD; then
         echo "[INFO] IRSA verification with spawn of pods is enabled (use the -s flag if you want to disable it)."
@@ -1066,125 +1398,29 @@ for component in $(echo "$PG_SERVICE_ACCOUNTS" | jq -r 'keys[]'); do
     else
         echo "[INFO] IRSA verification with spawn of pods is disabled (-s flag). No pods will be spawned for component verification."
     fi
+}
 
-    exit 3
+
+# Check PostgreSQL service accounts
+for component in $(echo "$PG_SERVICE_ACCOUNTS" | jq -r 'keys[]'); do
+    verify_service_accounts "$component" "pg"
 done
 
-# Check OpenSearch service accounts are enabled
+# Check OpenSearch service accounts
 for component in $(echo "$OS_SERVICE_ACCOUNTS" | jq -r 'keys[]'); do
-    check_service_account_enabled "$component" "$OS_SERVICE_ACCOUNTS"
-
-    service_account_name=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].serviceAccountName')
-    if [[ -z "$service_account_name" ]]; then
-        echo "[FAIL] Service account name for component '$component' is empty. Skipping verification." 1>&2
-        SCRIPT_STATUS_OUTPUT=8
-        continue
-    fi
-
-    check_role_arn_annotation_service_account "$service_account_name" "$component" "os"
-
-    role_arn=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r --arg comp "$component" '.[$comp].roleArn')
-    if [[ -z "$role_arn" ]]; then
-        echo "[FAIL] RoleArn name for component '$component' is empty. Skipping verification." 1>&2
-        SCRIPT_STATUS_OUTPUT=10
-        continue
-    fi
-
-    verify_role_arn "$role_arn" "$component" "$service_account_name"
+    verify_service_accounts "$component" "os"
 done
 
-
-exit 6
-
-
-# Check that the role has a trust policy that allows it to access the target resource
-
-# check EKS
-# aws eks describe-cluster --name cluster_name --query "cluster.identity.oidc.issuer" --output text
-# check that kubernetes version is > 1.23 https://docs.aws.amazon.com/eks/latest/userguide/configure-sts-endpoint.html
-
-# check postgres
-# check that the instance is healthy
-# check that the connectivity between the eks cluster and the instance exists
-# check that iam is enabled
-# check that the target has an allowed access policy
-# apply a check by deploying an amazonlinux pod and perform a curl + aws whoami, if it fails, inidcates to double check the policy indicated
-
-
-# check opensearch
-# check that the instance is healthy
-# check that the connectivity between the eks cluster and the instance exists
-# check that iam is enabled
-# check that the target has an allowed access policy
-# apply a check by deploying an amazonlinux pod and perform a curl + aws whoami, if it fails, inidcates to double check the policy indicated
-# At the end, if not match, indicates that it may be necessary to check each AssumeRolePolicy for the component that fails
-
-
-# Function to check service account IAM role binding
-check_service_account_iam_role() {
-    local service_account_name=$1
-    local iam_role_arn=$2
-
-    echo "[INFO] Checking Service Account $service_account_name in namespace $NAMESPACE for IAM Role $iam_role_arn."
-
-    # Retrieve IAM Role ARN annotation from the service account
-    local sa_iam_role
-    sa_iam_role=$(kubectl get serviceaccount "$service_account_name" -n "$NAMESPACE" -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}')
-
-    if [ "$sa_iam_role" == "$iam_role_arn" ]; then
-        echo "[OK] Service Account $service_account_name has the IAM Role $iam_role_arn bound correctly."
-    else
-        echo "[FAIL] Service Account $service_account_name does not have the correct IAM Role bound. Expected: $iam_role_arn, Found: $sa_iam_role." 1>&2
-        SCRIPT_STATUS_OUTPUT=1
-    fi
-}
-
-# Function to check the IAM Role trust policy
-check_iam_role_trust_policy() {
-    local iam_role_arn=$1
-
-    echo "[INFO] Checking IAM Role $iam_role_arn trust policy."
-
-    local trust_policy
-    trust_policy=$(aws iam get-role --role-name "$(basename "$iam_role_arn")" --query 'Role.AssumeRolePolicyDocument.Statement[0].Principal.Service' --output text)
-
-    if [[ "$trust_policy" == *"eks.amazonaws.com"* ]]; then
-        echo "[OK] IAM Role $iam_role_arn has the correct trust policy for EKS."
-    else
-        echo "[FAIL] IAM Role $iam_role_arn does not have the correct trust policy for EKS. Found: $trust_policy." 1>&2
-        SCRIPT_STATUS_OUTPUT=2
-    fi
-}
-
-# Function to check IAM Role permissions
-check_iam_role_permissions() {
-    local iam_role_arn=$1
-
-    echo "[INFO] Checking permissions for IAM Role $iam_role_arn."
-
-    local policies
-    policies=$(aws iam list-attached-role-policies --role-name "$(basename "$iam_role_arn")" --query 'AttachedPolicies[*].PolicyName' --output text)
-
-    if [[ "$policies" == *"AmazonEKSWorkerNodePolicy"* ]]; then
-        echo "[OK] IAM Role $iam_role_arn has the necessary permissions."
-    else
-        echo "[FAIL] IAM Role $iam_role_arn does not have the required permissions. Policies attached: $policies." 1>&2
-        SCRIPT_STATUS_OUTPUT=3
-    fi
-}
-
-# Loop through each service account and check its configuration unless it is excluded
-for sa_name in "${!service_accounts[@]}"; do
-    sa_role="${service_accounts[$sa_name]}"
-
-    if [[ " ${exclude_array[*]} " != *"$sa_name"* ]]; then
-        check_service_account_iam_role "$sa_name" "$sa_role"
-        check_iam_role_trust_policy "$sa_role"
-        check_iam_role_permissions "$sa_role"
-    else
-        echo "[INFO] Skipping Service Account $sa_name as per user request."
-    fi
-done
+# IRSA Troubleshooting Guidance
+echo ""
+echo "Note: If you encounter issues with IRSA, please start by checking the AssumeRole policies for any failing components to ensure they include the necessary permissions for the service accounts."
+echo "Additionally, you can utilize our OpenSearch and PostgreSQL client manifests to debug within a pod. These manifests are available at:"
+echo "   - OpenSearch Client Manifest: https://github.com/camunda/camunda-tf-eks-module/blob/main/modules/fixtures/opensearch-client.yml"
+echo "   - PostgreSQL Client Manifest: https://github.com/camunda/camunda-tf-eks-module/blob/main/modules/fixtures/postgres-client.yml"
+echo "If issues persist, we recommend consulting our IRSA Documentation: https://docs.camunda.io/docs/self-managed/setup/deploy/amazon/amazon-eks/irsa/ for additional checks."
+echo "This resource provides comprehensive guidance on constructing attached permission policies, setting up trust policies for roles, and implementing Fine-Grained Access Control (FGAC)."
+echo "It can help ensure that all necessary configurations are correctly applied."
+echo ""
 
 # Check for script failure
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then

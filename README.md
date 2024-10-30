@@ -24,9 +24,12 @@ The `checks` directory contains scripts for verifying Kubernetes and Zeebe conne
 
 ### Kubernetes
 
-Before using the Kubernetes health check scripts, ensure you have access to Kubernetes with a properly defined `kube config` context.
+
+Before using the Kubernetes health check scripts, ensure you have access to Kubernetes with a properly defined `kube config` context pointing to the cluster you wish to debug.
 
 For more information on setting up `kube config` context, refer to the [Kubernetes documentation](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_config/kubectl_config_use-context/).
+
+Additionally, ensure that the AWS CLI is configured and connected to the appropriate tenant for debugging when `awscli` is used.
 
 #### Deployment Check (`/checks/kube/deployment.sh`)
 
@@ -54,6 +57,43 @@ Options:
 ##### Dependencies:
 
 - `kubectl`: Required for interacting with Kubernetes clusters.
+
+### IRSA Configuration Check (`/checks/kube/aws-irsa.sh`)
+
+##### Description:
+
+This script checks the IRSA (IAM Roles for Service Accounts) configuration for AWS Kubernetes. It ensures that the necessary components are configured correctly for OpenSearch and PostgreSQL.
+
+##### Usage:
+```bash
+Usage: ./checks/kube/aws-irsa.sh [-h] [-n NAMESPACE] [-e EXCLUDE_COMPONENTS] [-p COMPONENTS_PG] [-l COMPONENTS_OS] [-s]
+Options:
+  -h                              Display this help message
+  -n NAMESPACE                    Specify the namespace to use
+  -e EXCLUDE_COMPONENTS           Comma-separated list of components to exclude from the check (reference of the component is the root key used in the chart)
+  -p COMPONENTS_PG                Comma-separated list of components to check IRSA for PostgreSQL (overrides default list)
+  -l COMPONENTS_OS                Comma-separated list of components to check IRSA for OpenSearch (overrides default list)
+  -s                              Disable pod spawn for IRSA and network flow verification
+```
+
+##### Example:
+```bash
+./checks/kube/aws-irsa.sh -n camunda-primary -p "identity,webModeler" -l "zeebe,operate"
+```
+
+##### Notes:
+- The script will display which components are being checked for IRSA support for both PostgreSQL and OpenSearch.
+- You can exclude specific components from the checks if necessary.
+- By default, the script will spawn debugging pods using the `amazonlinux:latest` container image in the cluster.
+- Basic Linux commands such as `sed`, `awk`, and `grep` will also be required for the script's operation.
+
+##### Dependencies:
+
+- `kubectl`: Required for interacting with Kubernetes clusters.
+- `aws-cli`: Required for checking AWS-specific configurations.
+- `jq`: Required for processing JSON data. [Install jq](https://jqlang.github.io/jq/download/).
+- `yq`: Required for processing YAML data. [Install yq](https://mikefarah.gitbook.io/yq/v3.x).
+- `helm`: Required for managing Kubernetes applications. [Install helm](https://helm.sh/docs/intro/install/).
 
 #### Connectivity Check (`/checks/kube/connectivity.sh`)
 
