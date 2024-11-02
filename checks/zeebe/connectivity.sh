@@ -25,7 +25,7 @@ ZEEBE_TOKEN_SCOPE="camunda-identity"
 API_PROTOCOL="grpc"
 
 # renovate: datasource=github-releases depName=camunda/zeebe
-ZEEBE_VERSION="8.6.3"
+ZEEBE_VERSION="8.6.4"
 
 # Function to display script usage
 usage() {
