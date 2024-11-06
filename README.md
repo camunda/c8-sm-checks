@@ -64,12 +64,6 @@ Options:
 
 This script checks the IRSA (IAM Roles for Service Accounts) configuration for AWS Kubernetes. It ensures that the necessary components are configured correctly for OpenSearch and PostgreSQL.
 
-### IRSA Configuration Check (`/checks/kube/aws-irsa.sh`)
-
-##### Description:
-
-This script checks the IRSA (IAM Roles for Service Accounts) configuration for AWS Kubernetes. It ensures that the necessary components are configured correctly for OpenSearch and PostgreSQL.
-
 Please note that this check requires Helm to be deployed directly; using `helm template` (e.g., for ArgoCD) is not supported at this time. If you're interested in this feature, feel free to open a ticket.
 
 ##### Usage:
