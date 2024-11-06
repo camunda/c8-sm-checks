@@ -23,6 +23,18 @@ COMPONENTS_TO_CHECK_IRSA_PG="identityKeycloak,identity,webModeler"
 
 EXCLUDE_COMPONENTS=""
 
+
+# Associative array for case-insensitive component mapping
+COMPONENT_MAPPING=(
+    "zeebe:zeebe"
+    "operate:operate"
+    "tasklist:tasklist"
+    "optimize:optimize"
+    "identitykeycloak:identityKeycloak"
+    "identity:identity"
+    "webmodeler:webModeler"
+)
+
 # Minimum required AWS CLI versions
 REQUIRED_AWSCLI_VERSION_V2="2.12.3"
 REQUIRED_AWSCLI_VERSION_V1="1.27.160"
@@ -32,13 +44,41 @@ usage() {
     echo "Usage: $0 [-h] [-n NAMESPACE] [-e EXCLUDE_COMPONENTS] [-p COMPONENTS_PG] [-l COMPONENTS_OS] [-s]"
     echo "Options:"
     echo "  -h                              Display this help message"
-    echo "  -n NAMESPACE                    Specify the namespace to use"
+    echo "  -n NAMESPACE                    Specify the namespace to use (required)"
     echo "  -e EXCLUDE_COMPONENTS           Comma-separated list of Components to exclude from the check (reference of the component is the root key used in the chart)"
     echo "  -p COMPONENTS_PG                Comma-separated list of Components to check IRSA for PostgreSQL (overrides default list: $COMPONENTS_TO_CHECK_IRSA_PG)"
     echo "  -l COMPONENTS_OS                Comma-separated list of Components to check IRSA for OpenSearch (overrides default list: $COMPONENTS_TO_CHECK_IRSA_OS)"
-    echo "  -s                              Disable pod spawn for IRSA and network flow verification"
+    echo "  -s                              Disable pod spawn for IRSA and connectivity verification."
+    echo "                                  By default, the script spawns jobs in the specified namespace to perform"
+    echo "                                  IRSA checks and network connectivity tests. These jobs use the amazonlinux:latest"
+    echo "                                  image and scan with nmap to verify connectivity."
     exit 1
 }
+# Convert user input to lowercase and map it to the case-sensitive component names
+normalize_components() {
+    input="$1"
+    normalized_components=()
+
+    # Split input by comma and process each component
+    IFS=',' read -ra components <<< "$input"
+    for component in "${components[@]}"; do
+        lower_component=$(echo "$component" | tr '[:upper:]' '[:lower:]')
+
+        for mapping in "${COMPONENT_MAPPING[@]}"; do
+            key=${mapping%%:*}
+            value=${mapping#*:}
+
+            if [[ "$lower_component" == "$key" ]]; then
+                normalized_components+=("$value")
+                break
+            fi
+        done
+    done
+
+    # Join normalized components back with commas
+    echo "${normalized_components[*]}" | tr ' ' ','
+}
+
 
 # Parse command line options
 while getopts ":hn:e:p:l:s" opt; do
@@ -50,13 +90,13 @@ while getopts ":hn:e:p:l:s" opt; do
             NAMESPACE=$OPTARG
             ;;
         e)
-            EXCLUDE_COMPONENTS=$OPTARG
+            EXCLUDE_COMPONENTS=$(normalize_components "$OPTARG")
             ;;
         p)
-            COMPONENTS_TO_CHECK_IRSA_PG=$OPTARG
+            COMPONENTS_TO_CHECK_IRSA_PG=$(normalize_components "$OPTARG")
             ;;
         l)
-            COMPONENTS_TO_CHECK_IRSA_OS=$OPTARG
+            COMPONENTS_TO_CHECK_IRSA_OS=$(normalize_components "$OPTARG")
             ;;
         s)
             SPAWN_POD=false
@@ -148,20 +188,20 @@ CAMUNDA_HELM_CHART_DEPLOYMENT=""
 check_helm_deployment() {
     echo "[INFO] Checking for Helm deployment in namespace $NAMESPACE for chart $CHART_NAME."
 
-
     helm_command="helm list -n \"$NAMESPACE\" -o json"
     echo "[INFO] Running command: ${helm_command}"
     helm_list_output=$(eval "${helm_command}")
 
-    echo "[INFO] List of helm charts installed in the namespace: $helm_list_output"
+    echo "[INFO] List of Helm charts installed in the namespace: $helm_list_output"
 
     camunda_chart_command="echo '$helm_list_output' | jq -c '.[] | select(.chart | startswith(\"camunda-platform-\"))'"
     CAMUNDA_HELM_CHART_DEPLOYMENT=$(eval "${camunda_chart_command}")
 
-    if [[ -n "$CAMUNDA_HELM_CHART_DEPLOYMENT" ]]; then
+    if [[ -n "$CAMUNDA_HELM_CHART_DEPLOYMENT" && "$CAMUNDA_HELM_CHART_DEPLOYMENT" != "null" ]]; then
         echo "[OK] Chart $CHART_NAME is deployed in namespace $NAMESPACE: $CAMUNDA_HELM_CHART_DEPLOYMENT."
     else
         echo "[FAIL] Chart $CHART_NAME is not found in namespace $NAMESPACE." 1>&2
+        echo "[INFO] It appears that $CHART_NAME may not have been deployed with Helm directly. If you used 'helm template' or another method, please note that these are not supported by this check." 1>&2
         SCRIPT_STATUS_OUTPUT=4
     fi
 }
@@ -178,13 +218,29 @@ retrieve_helm_deployment_values() {
     echo "[INFO] Running command: ${chart_name_command}"
     HELM_RELEASE_NAME=$(eval "${chart_name_command}")
 
+    if [[ -z "$HELM_RELEASE_NAME" || "$HELM_RELEASE_NAME" == "null" ]]; then
+        echo "[FAIL] Failed to found the helm release name: $HELM_RELEASE_NAME" 1>&2
+        SCRIPT_STATUS_OUTPUT=5
+    fi
+
     helm_values_command="helm -n \"$NAMESPACE\" get values \"$HELM_RELEASE_NAME\" -o json"
     echo "[INFO] Running command: ${helm_values_command}"
     HELM_CHART_VALUES=$(eval "${helm_values_command}")
 
+    if [[ -z "$HELM_CHART_VALUES" ]]; then
+        echo "[FAIL] Failed to retrieve helm values for $HELM_RELEASE_NAME" 1>&2
+        SCRIPT_STATUS_OUTPUT=5
+    fi
+
     helm_chart_version_command="echo '$CAMUNDA_HELM_CHART_DEPLOYMENT' | jq -r '.chart'"
     echo "[INFO] Running command: ${helm_chart_version_command}"
     HELM_CHART_VERSION=$(eval "${helm_chart_version_command}")
+
+
+    if [[ -z "$HELM_CHART_VERSION" || "$HELM_CHART_VERSION" == "null" ]]; then
+        echo "[FAIL] Failed to capture version for helm chart deployment $HELM_RELEASE_NAME: $HELM_CHART_VERSION" 1>&2
+        SCRIPT_STATUS_OUTPUT=5
+    fi
 
     major_version=$(echo "$HELM_CHART_VERSION" | sed 's/^.*-//' | cut -d '.' -f 1)
     if (( major_version < 11 )); then
@@ -386,7 +442,7 @@ get_service_account_name() {
         service_account_name=$(echo "$HELM_CHART_VALUES" | jq -r --arg comp "$component" '.[$comp].serviceAccount.name // empty')
 
         # Use default naming if no serviceAccount name is found in values
-        if [[ -z "$service_account_name" ]]; then
+        if [[ -z "$service_account_name" ||  "$service_account_name" == "null"  ]]; then
             service_account_name="${HELM_RELEASE_NAME}-${component}"
             echo "[INFO] Component $component has no custom service account name ($component.serviceAccount.name), falling back on default: $service_account_name."
         fi
@@ -499,17 +555,17 @@ EOF
 
 check_irsa_opensearch_requirements() {
     elasticsearch_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.elasticsearch.enabled')
-    if [[ "$elasticsearch_enabled" == "null" ]]; then
+    if [[ -z "$elasticsearch_enabled" || "$elasticsearch_enabled" == "null" ]]; then
         elasticsearch_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.elasticsearch.enabled')
     fi
 
     opensearch_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.enabled')
-    if [[ "$opensearch_enabled" == "null" ]]; then
+    if [[ -z "$opensearch_enabled" || "$opensearch_enabled" == "null" ]]; then
         opensearch_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.opensearch.enabled')
     fi
 
     opensearch_aws_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.aws.enabled')
-    if [[ "$opensearch_aws_enabled" == "null" ]]; then
+    if [[ -z "$opensearch_aws_enabled" || "$opensearch_aws_enabled" == "null" ]]; then
         opensearch_aws_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.opensearch.aws.enabled')
     fi
 
@@ -607,11 +663,16 @@ check_opensearch_iam_enabled() {
     fi
 
     access_policy=$(echo "$domain_info" | jq -r '.DomainStatus.AccessPolicies')
-    echo "[INFO] Retrieved Access Policy for domain $domain_name: $access_policy"
+    if [[ -z "$access_policy" || "$access_policy" == "null" ]]; then
+        echo "[FAIL] Cannot retrieve Access Policy for domain $domain_name: $access_policy" 1>&2
+        SCRIPT_STATUS_OUTPUT=66
+    else
+        echo "[INFO] Retrieved Access Policy for domain $domain_name: $access_policy"
+    fi
 
     # Check if the Access Policy allows access (basic check for "Effect": "Allow")
     allow_access=$(echo "$access_policy" | jq -r '.Statement[] | select(.Effect == "Allow")')
-    if [[ -n "$allow_access" ]]; then
+    if [[ -n "$allow_access" && "$allow_access" != "null" ]]; then
         echo "[OK] Access policy allows necessary access for domain $domain_name."
     else
         echo "[FAIL] Access policy does not allow access as required for domain $domain_name." 1>&2
@@ -668,7 +729,7 @@ check_aurora_cluster() {
     db_cluster=$(echo "$db_clusters" | jq -e --arg identifier "$cluster_name" '.DBClusters[] | select(.DBClusterIdentifier == $identifier)')
 
     # Check if the cluster was found
-    if [[ -n "$db_cluster" ]]; then
+    if [[ -n "$db_cluster" && "$db_cluster" != "null" ]]; then
         echo "[OK] Cluster matching the specified identifier '$cluster_name' found: $db_cluster."
     else
         echo "[FAIL] No matching cluster found for the specified identifier '$cluster_name'." 1>&2
@@ -713,7 +774,7 @@ check_irsa_aurora_requirements() {
                     keycloak_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.postgresql.enabled")
                 fi
 
-                if [[ -z "$keycloak_enabled" ]]; then
+                if [[ -z "$keycloak_enabled" || "$keycloak_enabled" == "null" ]]; then
                     echo "[FAIL] $component.postgresql.enabled is not defined in your helm values." 1>&2
                     SCRIPT_STATUS_OUTPUT=81
                 elif [[ "$keycloak_enabled" != "false" ]]; then
@@ -724,11 +785,11 @@ check_irsa_aurora_requirements() {
                 fi
 
                 keycloak_image=$(echo "$HELM_CHART_VALUES" | jq -r ".identityKeycloak.image // empty")
-                if [[ -z "$keycloak_image" ]]; then
+                if [[ -z "$keycloak_image" || "$keycloak_image" == "null" ]]; then
                     keycloak_image=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".identityKeycloak.image // empty")
                 fi
 
-                if [[ -z "$keycloak_image" ]]; then
+                if [[ -z "$keycloak_image" || "$keycloak_image" == "null" ]]; then
                     echo "[FAIL] identityKeycloak.image is not defined in both values and default values." 1>&2
                     SCRIPT_STATUS_OUTPUT=83
                 else
@@ -742,11 +803,11 @@ check_irsa_aurora_requirements() {
 
                 # Retrieve host and port values for identityKeycloak.externalDatabase with fallback to HELM_CHART_DEFAULT_VALUES
                 identity_keycloak_host=$(echo "$HELM_CHART_VALUES" | jq -r ".identityKeycloak.externalDatabase.host // empty")
-                if [[ -z "$identity_keycloak_host" ]]; then
+                if [[ -z "$identity_keycloak_host" || "$identity_keycloak_host" == "null" ]]; then
                     identity_keycloak_host=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".identityKeycloak.externalDatabase.host // empty")
                 fi
 
-                if [[ -z "$identity_keycloak_host" ]]; then
+                if [[ -z "$identity_keycloak_host" || "$identity_keycloak_host" == "null" ]]; then
                     echo "[FAIL] identityKeycloak.externalDatabase.host is not defined in your helm values." 1>&2
                     SCRIPT_STATUS_OUTPUT=85
                 else
@@ -754,23 +815,23 @@ check_irsa_aurora_requirements() {
                 fi
 
                 identity_keycloak_port=$(echo "$HELM_CHART_VALUES" | jq -r ".identityKeycloak.externalDatabase.port // empty")
-                if [[ -z "$identity_keycloak_port" ]]; then
+                if [[ -z "$identity_keycloak_port" || "$identity_keycloak_port" == "null" ]]; then
                     identity_keycloak_port=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".identityKeycloak.externalDatabase.port // empty")
                 fi
 
-                if [[ -z "$identity_keycloak_port" ]]; then
-                    echo "[FAIL] identityKeycloak.externalDatabase.port is not defined in your helm values." 1>&2
-                    SCRIPT_STATUS_OUTPUT=86
+                if [[ -z "$identity_keycloak_port" || "$identity_keycloak_port" == "null" ]]; then
+                    identity_keycloak_port=5432
+                    echo "[INFO] identityKeycloak.externalDatabase.port is not defined in your helm values. Assuming default port: $identity_keycloak_port"
                 else
                     echo "[INFO] identityKeycloak.externalDatabase.port retrieved from your helm values: $identity_keycloak_port"
                 fi
 
                 keycloak_external_username=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.externalDatabase.user // empty")
-                if [[ -z "$keycloak_external_username" ]]; then
+                if [[ -z "$keycloak_external_username" || "$keycloak_external_username" == "null" ]]; then
                     keycloak_external_username=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.externalDatabase.user // empty")
                 fi
 
-                if [[ -z "$keycloak_external_username" ]]; then
+                if [[ -z "$keycloak_external_username" || "$keycloak_external_username" == "null" ]]; then
                     echo "[FAIL] $component.externalDatabase.user is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=87
                 else
@@ -794,7 +855,7 @@ check_irsa_aurora_requirements() {
 
                 # Retrieve values directly from HELM_CHART_VALUES using jq
                 keycloak_extra_args=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_EXTRA_ARGS\") | .value // empty")
-                if [[ -z "$keycloak_extra_args" ]]; then
+                if [[ -z "$keycloak_extra_args" || "$keycloak_extra_args" == "null" ]]; then
                     echo "[FAIL] KEYCLOAK_EXTRA_ARGS is not defined." 1>&2
                     keycloak_extra_args_valid=false
                 elif [[ ! "$keycloak_extra_args" == *"--db-driver=software.amazon.jdbc.Driver"* ]]; then
@@ -803,7 +864,7 @@ check_irsa_aurora_requirements() {
                 fi
 
                 keycloak_jdbc_params=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_JDBC_PARAMS\") | .value // empty")
-                if [[ -z "$keycloak_jdbc_params" ]]; then
+                if [[ -z "$keycloak_jdbc_params" || "$keycloak_jdbc_params" == "null" ]]; then
                     echo "[FAIL] KEYCLOAK_JDBC_PARAMS is not defined." 1>&2
                     keycloak_jdbc_params_valid=false
                 elif [[ "$keycloak_jdbc_params" != "wrapperPlugins=iam&ssl=true&sslmode=require" ]]; then
@@ -812,7 +873,7 @@ check_irsa_aurora_requirements() {
                 fi
 
                 keycloak_jdbc_driver=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.extraEnvVars[]? | select(.name == \"KEYCLOAK_JDBC_DRIVER\") | .value // empty")
-                if [[ -z "$keycloak_jdbc_driver" ]]; then
+                if [[ -z "$keycloak_jdbc_driver" || "$keycloak_jdbc_driver" == "null" ]]; then
                     echo "[FAIL] KEYCLOAK_JDBC_DRIVER is not defined." 1>&2
                     keycloak_jdbc_driver_valid=false
                 elif [[ "$keycloak_jdbc_driver" != "aws-wrapper:postgresql" ]]; then
@@ -833,12 +894,12 @@ check_irsa_aurora_requirements() {
             "identity")
                 # Check if identity.externalDatabase.enabled is defined, with fallback to HELM_CHART_DEFAULT_VALUES
                 identity_enabled=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.externalDatabase.enabled // empty")
-                if [[ -z "$identity_enabled" ]]; then
+                if [[ -z "$identity_enabled" || "$identity_enabled" == "null" ]]; then
                     # Fallback to HELM_CHART_DEFAULT_VALUES if not defined in HELM_CHART_VALUES
                     identity_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.externalDatabase.enabled // empty")
                 fi
 
-                if [[ -z "$identity_enabled" ]]; then
+                if [[ -z "$identity_enabled" || "$identity_enabled" == "null" ]]; then
                     echo "[FAIL] $component.externalDatabase.enabled is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=88
                 elif [[ "$identity_enabled" != "true" ]]; then
@@ -850,11 +911,11 @@ check_irsa_aurora_requirements() {
 
                 # Retrieve the host for identity.externalDatabase with fallback to HELM_CHART_DEFAULT_VALUES
                 identity_external_host=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.externalDatabase.host // empty")
-                if [[ -z "$identity_external_host" ]]; then
+                if [[ -z "$identity_external_host" || "$identity_external_host" == "null" ]]; then
                     identity_external_host=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.externalDatabase.host // empty")
                 fi
 
-                if [[ -z "$identity_external_host" ]]; then
+                if [[ -z "$identity_external_host" || "$identity_external_host" == "null" ]]; then
                     echo "[FAIL] $component.externalDatabase.host is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=90
                 else
@@ -863,23 +924,23 @@ check_irsa_aurora_requirements() {
 
                 # Retrieve the port for identity.externalDatabase with fallback to HELM_CHART_DEFAULT_VALUES
                 identity_external_port=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.externalDatabase.port // empty")
-                if [[ -z "$identity_external_port" ]]; then
+                if [[ -z "$identity_external_port" || "$identity_external_port" == "null" ]]; then
                     identity_external_port=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.externalDatabase.port // empty")
                 fi
 
-                if [[ -z "$identity_external_port" ]]; then
-                    echo "[FAIL] $component.externalDatabase.port is not defined in your helm values or defaults." 1>&2
-                    SCRIPT_STATUS_OUTPUT=91
+                if [[ -z "$identity_external_port" || "$identity_external_port" == "null" ]]; then
+                    identity_external_port=5432
+                    echo "[INFO] $component.externalDatabase.port is not defined in your helm values. Assuming default port: $identity_external_port"
                 else
                     echo "[INFO] $component.externalDatabase.port retrieved from your helm values or defaults: $identity_external_port"
                 fi
 
                 identity_external_username=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.externalDatabase.username // empty")
-                if [[ -z "$identity_external_username" ]]; then
+                if [[ -z "$identity_external_username" || "$identity_external_username" == "null" ]]; then
                     identity_external_username=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.externalDatabase.username // empty")
                 fi
 
-                if [[ -z "$identity_external_username" ]]; then
+                if [[ -z "$identity_external_username" || "$identity_external_username" == "null" ]]; then
                     echo "[FAIL] $component.externalDatabase.username is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=92
                 else
@@ -904,7 +965,7 @@ check_irsa_aurora_requirements() {
                 spring_datasource_driver_valid=true
 
                 # Validate SPRING_DATASOURCE_URL
-                if [[ -z "$spring_datasource_url" ]]; then
+                if [[ -z "$spring_datasource_url" || "$spring_datasource_url" == "null" ]]; then
                     echo "[FAIL] SPRING_DATASOURCE_URL for $component is not defined." 1>&2
                     spring_datasource_url_valid=false
                 elif [[ ! "$spring_datasource_url" == jdbc:aws-wrapper:postgresql://* || ! "$spring_datasource_url" == *"wrapperPlugins=iam"* ]]; then
@@ -915,7 +976,7 @@ check_irsa_aurora_requirements() {
                 fi
 
                 # Validate SPRING_DATASOURCE_DRIVER_CLASS_NAME
-                if [[ -z "$spring_datasource_driver" ]]; then
+                if [[ -z "$spring_datasource_driver" || "$spring_datasource_driver" == "null" ]]; then
                     echo "[FAIL] SPRING_DATASOURCE_DRIVER_CLASS_NAME for $component is not defined." 1>&2
                     spring_datasource_driver_valid=false
                 elif [[ "$spring_datasource_driver" != "software.amazon.jdbc.Driver" ]]; then
@@ -938,14 +999,14 @@ check_irsa_aurora_requirements() {
             "webModeler")
                 # Check if webModeler.restapi.externalDatabase.url is defined, with fallback to HELM_CHART_DEFAULT_VALUES
                 web_modeler_url=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.restapi.externalDatabase.url // empty")
-                if [[ -z "$web_modeler_url" ]]; then
+                if [[ -z "$web_modeler_url" || "$web_modeler_url" == "null" ]]; then
                     web_modeler_url=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.restapi.externalDatabase.url // empty")
                 fi
 
                 web_modeler_db_host=""
                 web_modeler_db_port=""
 
-                if [[ -z "$web_modeler_url" ]]; then
+                if [[ -z "$web_modeler_url" || "$web_modeler_url" == "null" ]]; then
                     echo "[FAIL] $component.restapi.externalDatabase.url is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=94
                 else
@@ -969,11 +1030,11 @@ check_irsa_aurora_requirements() {
                 fi
 
                 web_modeler_user=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.restapi.externalDatabase.user // empty")
-                if [[ -z "$web_modeler_user" ]]; then
+                if [[ -z "$web_modeler_user" || "$web_modeler_user" == "null" ]]; then
                     web_modeler_user=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.restapi.externalDatabase.user // empty")
                 fi
 
-                if [[ -z "$web_modeler_user" ]]; then
+                if [[ -z "$web_modeler_user" || "$web_modeler_user" == "null" ]]; then
                     echo "[FAIL] $component.restapi.externalDatabase.user is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=96
                 else
@@ -994,7 +1055,7 @@ check_irsa_aurora_requirements() {
                 echo "[INFO] Extra env vars for $component: $spring_datasource_driver_value"
 
                 # Check if the variable is set and validate its value
-                if [[ -z "$spring_datasource_driver_value" ]]; then
+                if [[ -z "$spring_datasource_driver_value" || "$spring_datasource_driver_value" == "null" ]]; then
                     echo "[FAIL] Required environment variable SPRING_DATASOURCE_DRIVER_CLASS_NAME for ${component}.restapi.env is not set." 1>&2
                     SCRIPT_STATUS_OUTPUT=97
                 else
@@ -1028,7 +1089,7 @@ fi
 
     # Check if {component].serviceAccount.enabled exists in HELM_CHART_VALUES first otherwise, fallback on default
     enabled_value=$(echo "$service_accounts" | jq -r --arg comp "$component" '.[$comp].serviceAccount.enabled')
-    if [[ "$enabled_value" == "null" ]]; then
+    if [[ -z "$enabled_value" || "$enabled_value" == "null" ]]; then
         enabled_value=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r --arg comp "$component" '.[$comp].serviceAccount.enabled')
     fi
 
@@ -1055,7 +1116,7 @@ check_role_arn_annotation_service_account() {
 
     role_arn=$(echo "$annotations" | jq -r '.metadata.annotations["eks.amazonaws.com/role-arn"]')
 
-    if [[ -z "$role_arn" ]]; then
+    if [[ -z "$role_arn" || "$role_arn" == "null" ]]; then
         echo "[FAIL] The service account $service_account_name does not have a valid eks.amazonaws.com/role-arn annotation. You must add it in the chart, see https://docs.camunda.io/docs/self-managed/setup/deploy/amazon/amazon-eks/eks-helm/" 1>&2
         SCRIPT_STATUS_OUTPUT=110
     else
@@ -1092,7 +1153,7 @@ verify_role_arn() {
 
     allow_statement=$(echo "$role_output" | jq -r '.Role.AssumeRolePolicyDocument.Statement[] | select(.Effect == "Allow") | select(.Action == "sts:AssumeRoleWithWebIdentity")')
 
-    if [ -z "$allow_statement" ]; then
+    if [[ -z "$allow_statement" || "$allow_statement" == "null" ]]; then
         echo "[FAIL] Role=$role_arn: AssumeRolePolicyDocument does not contain an Allow statement with Action: sts:AssumeRoleWithWebIdentity." 1>&2
         SCRIPT_STATUS_OUTPUT=121
     else
@@ -1182,7 +1243,7 @@ EOF
 
     # Extract the ARN from the output
     pod_arn=$(echo "$output" | jq -r '.Arn')
-    if [ -z "$pod_arn" ]; then
+    if [[ -z "$pod_arn" || "$pod_arn" == "null" ]]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to extract ARN from job output." 1>&2
         SCRIPT_STATUS_OUTPUT=133
         return $SCRIPT_STATUS_OUTPUT
@@ -1238,7 +1299,19 @@ verify_rds_permissions() {
 
     for (( i=0; i<policy_count; i++ )); do
         policy_arn=$(echo "$attached_policies" | jq -r ".AttachedPolicies[$i].PolicyArn")
+        if [[ -z "$policy_arn" || "$policy_arn" == "null" ]]; then
+            echo "[ERROR] policy_arn is either empty or null. Skipping policy check for $role_arn."
+            SCRIPT_STATUS_OUTPUT=141
+            continue
+        fi
+
         policy_version_id=$(aws iam get-policy --policy-arn "$policy_arn" | jq -r '.Policy.DefaultVersionId')
+        if [[ -z "$policy_version_id" || "$policy_version_id" == "null" ]]; then
+            echo "[ERROR] policy_version_id is either empty or null. Skipping policy check for $role_arn."
+            SCRIPT_STATUS_OUTPUT=141
+            continue
+        fi
+
         echo "[INFO] Checking $role_arn attached policy ($policy_arn in version $policy_version_id): $attached_policies"
 
         # Fetch the policy document
@@ -1329,7 +1402,7 @@ verify_opensearch_permissions() {
             resources=$(echo "$statement" | jq -r '.Resource | if type == "array" then join(",") else . end')
 
             # Ensure the resource is not empty
-            if [[ -z "$resources" ]]; then
+            if [[ -z "$resources" || "$resources" == "null" ]]; then
                 continue  # Skip empty resources
             fi
 
@@ -1369,7 +1442,7 @@ verify_service_accounts() {
         return
     fi
 
-    if [[ -z "$service_account_name" ]]; then
+    if [[ -z "$service_account_name" || "$service_account_name" == "null" ]]; then
         echo "[FAIL] Service account name for component '$component' is empty. Skipping verification." 1>&2
         SCRIPT_STATUS_OUTPUT=162
         return
@@ -1377,7 +1450,7 @@ verify_service_accounts() {
 
     check_role_arn_annotation_service_account "$service_account_name" "$component" "$service_type"
 
-    if [[ -z "$role_arn" ]]; then
+    if [[ -z "$role_arn" || "$role_arn" == "null" ]]; then
         echo "[FAIL] RoleArn name for component '$component' is empty. Skipping verification." 1>&2
         SCRIPT_STATUS_OUTPUT=163
         return
