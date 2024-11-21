@@ -40,13 +40,13 @@ It verifies the presence and readiness of required containers within the deploym
 
 ##### Usage:
 ```bash
-Usage: ./checks/kube/deployment.sh [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME] [-l] [-c REQUIRED_CONTAINERS]
+Usage: ./checks/kube/deployment.sh [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]
 Options:
   -h                              Display this help message
   -n NAMESPACE                    Specify the namespace to use
   -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: camunda)
   -l                              Skip checks of the helm deployment (default: 0)
-  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated, default: console connector web-modeler optimize zeebe zeebe-gateway)
+  -c                              Specify the list of containers to check (comma-separated, default: connector,optimize,zeebe,zeebe-gateway)
 ```
 
 ##### Example:
@@ -68,14 +68,17 @@ Please note that this check requires Helm to be deployed directly; using `helm t
 
 ##### Usage:
 ```bash
-Usage: ./checks/kube/aws-irsa.sh [-h] [-n NAMESPACE] [-e EXCLUDE_COMPONENTS] [-p COMPONENTS_PG] [-l COMPONENTS_OS] [-s]
+Usage: ./checks/kube/aws-irsa.sh [-h] [-n NAMESPACE] [-e EXCLUDE_COMPONENTS] [-p] [-l] [-s]
 Options:
   -h                              Display this help message
-  -n NAMESPACE                    Specify the namespace to use
-  -e EXCLUDE_COMPONENTS           Comma-separated list of components to exclude from the check (reference of the component is the root key used in the chart)
-  -p COMPONENTS_PG                Comma-separated list of components to check IRSA for PostgreSQL (overrides default list)
-  -l COMPONENTS_OS                Comma-separated list of components to check IRSA for OpenSearch (overrides default list)
-  -s                              Disable pod spawn for IRSA and network flow verification
+  -n NAMESPACE                    Specify the namespace to use (required)
+  -e EXCLUDE_COMPONENTS           Comma-separated list of Components to exclude from the check (reference of the component is the root key used in the chart)
+  -p                              Comma-separated list of Components to check IRSA for PostgreSQL (overrides default list: identityKeycloak,identity,webModeler)
+  -l                              Comma-separated list of Components to check IRSA for OpenSearch (overrides default list: zeebe,operate,tasklist,optimize)
+  -s                              Disable pod spawn for IRSA and connectivity verification.
+                                  By default, the script spawns jobs in the specified namespace to perform
+                                  IRSA checks and network connectivity tests. These jobs use the amazonlinux:latest
+                                  image and scan with nmap to verify connectivity.
 ```
 
 ##### Example:
@@ -106,7 +109,7 @@ It checks for the presence of services and ingresses that conform to the require
 
 ##### Usage:
 ```bash
-Usage: ./checks/kube/connectivity.sh [-h] [-n NAMESPACE] [-i]
+Usage: ./checks/kube/connectivity.sh [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]
 Options:
   -h                              Display this help message
   -n NAMESPACE                    Specify the namespace to use
@@ -133,10 +136,11 @@ This script retrieves an access token from an authorization server using client 
 
 ##### Usage:
 ```bash
-Usage: ./checks/zeebe/token.sh [-h] [-a ZEEBE_AUTHORIZATION_SERVER_URL] [-i ZEEBE_CLIENT_ID] [-s ZEEBE_CLIENT_SECRET] [-u ZEEBE_TOKEN_AUDIENCE]
+Usage: ./checks/zeebe/token.sh [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]
 Options:
   -h                                  Display this help message
-  -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/token)
+  -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
+oken)
   -i ZEEBE_CLIENT_ID                  Specify the client ID
   -s ZEEBE_CLIENT_SECRET              Specify the client secret
   -u ZEEBE_TOKEN_AUDIENCE             Specify the token audience
@@ -172,7 +176,8 @@ Options:
   -k                                    Skip TLS verification (insecure mode)
   -r CACERT                             Specify the path to CA certificate file
   -j CLIENTCERT                         Specify the path to Client certificate file
-  -a ZEEBE_AUTHORIZATION_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token)
+  -a ZEEBE_AUTHORIZATION_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/t
+oken)
   -i ZEEBE_CLIENT_ID                    Specify the client ID
   -s ZEEBE_CLIENT_SECRET                Specify the client secret
   -u ZEEBE_TOKEN_AUDIENCE               Specify the token audience

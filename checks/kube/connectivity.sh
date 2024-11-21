@@ -8,7 +8,7 @@ DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Define default variables
-NAMESPACE=""
+NAMESPACE="${NAMESPACE:-""}"
 SKIP_CHECK_INGRESS_CLASS=0
 
 usage() {
