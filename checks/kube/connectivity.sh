@@ -12,7 +12,7 @@ NAMESPACE="${NAMESPACE:-""}"
 SKIP_CHECK_INGRESS_CLASS=0
 
 usage() {
-    echo "Usage: $0 [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]"
+    echo "Usage: $0 [-h] [-n NAMESPACE]"
     echo "Options:"
     echo "  -h                              Display this help message"
     echo "  -n NAMESPACE                    Specify the namespace to use"

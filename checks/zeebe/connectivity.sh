@@ -30,21 +30,22 @@ ZEEBE_VERSION="${ZEEBE_VERSION:-$ZEEBE_DEFAULT_VERSION}"
 
 # Function to display script usage
 usage() {
-    echo "Usage: $0 [-h] [-H ZEEBE_HOST]"
+    echo "Usage: $0 [-h] [-H ZEEBE_HOST] [-p ZEEBE_VERSION] [-f PROTO_FILE] [-k] [-r CACERT] [-j CLIENTCERT]"
+    echo "       [-a ZEEBE_AUTHORIZATION_SERVER_URL] [-i ZEEBE_CLIENT_ID] [-s ZEEBE_CLIENT_SECRET]"
+    echo "       [-u ZEEBE_TOKEN_AUDIENCE] [-q API_PROTOCOL]"
     echo "Options:"
     echo "  -h                                    Display this help message"
     echo "  -H ZEEBE_HOST                         Specify the Zeebe host with the port (e.g., zeebe.c8.camunda.example.com:443)"
-    echo "  -p ZEEBE_VERSION                      Specify the Zeebe version (default is latest version: $ZEEBE_VERSION)"
-    echo "  -f PROTO_FILE                         Specify the path to gateway.proto file or leave empty to download it (default behavior is to download the protofile)"
+    echo "  -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: $ZEEBE_VERSION)"
+    echo "  -f PROTO_FILE                         Specify the path to the gateway.proto file or leave empty to download it (default behavior is to download the proto file)"
     echo "  -k                                    Skip TLS verification (insecure mode)"
-    echo "  -r CACERT                             Specify the path to CA certificate file"
-    echo "  -j CLIENTCERT                         Specify the path to Client certificate file"
-    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL     Specify the authorization server URL (e.g.: https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/t
-oken)"
+    echo "  -r CACERT                             Specify the path to the CA certificate file"
+    echo "  -j CLIENTCERT                         Specify the path to the client certificate file"
+    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL     Specify the authorization server URL (e.g., https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token)"
     echo "  -i ZEEBE_CLIENT_ID                    Specify the client ID"
     echo "  -s ZEEBE_CLIENT_SECRET                Specify the client secret"
     echo "  -u ZEEBE_TOKEN_AUDIENCE               Specify the token audience"
-    echo "  -q API_PROTOCOL                       Specify the API protocol (e.g. http or grpc - default is grpc)"
+    echo "  -q API_PROTOCOL                       Specify the API protocol (e.g., http or grpc - default is grpc)"
     exit 1
 }
 
