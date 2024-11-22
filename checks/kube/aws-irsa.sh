@@ -9,7 +9,7 @@ DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Default variables
-NAMESPACE=""
+NAMESPACE="${NAMESPACE:-""}"
 SCRIPT_STATUS_OUTPUT=0
 CHART_NAME="camunda-platform"
 SPAWN_POD=true  # By default, the pod will spawn for verification
@@ -21,7 +21,7 @@ COMPONENTS_TO_CHECK_IRSA_OS="zeebe,operate,tasklist,optimize"
 # The second list is for components that need IRSA to authenticate to PostgreSQL
 COMPONENTS_TO_CHECK_IRSA_PG="identityKeycloak,identity,webModeler"
 
-EXCLUDE_COMPONENTS=""
+EXCLUDE_COMPONENTS="${EXCLUDE_COMPONENTS:-""}"
 
 
 # Associative array for case-insensitive component mapping
@@ -41,13 +41,13 @@ REQUIRED_AWSCLI_VERSION_V1="1.27.160"
 
 # Usage message
 usage() {
-    echo "Usage: $0 [-h] [-n NAMESPACE] [-e EXCLUDE_COMPONENTS] [-p COMPONENTS_PG] [-l COMPONENTS_OS] [-s]"
+    echo "Usage: $0 [-h] [-n NAMESPACE] [-e EXCLUDE_COMPONENTS] [-p] [-l] [-s]"
     echo "Options:"
     echo "  -h                              Display this help message"
     echo "  -n NAMESPACE                    Specify the namespace to use (required)"
     echo "  -e EXCLUDE_COMPONENTS           Comma-separated list of Components to exclude from the check (reference of the component is the root key used in the chart)"
-    echo "  -p COMPONENTS_PG                Comma-separated list of Components to check IRSA for PostgreSQL (overrides default list: $COMPONENTS_TO_CHECK_IRSA_PG)"
-    echo "  -l COMPONENTS_OS                Comma-separated list of Components to check IRSA for OpenSearch (overrides default list: $COMPONENTS_TO_CHECK_IRSA_OS)"
+    echo "  -p                              Comma-separated list of Components to check IRSA for PostgreSQL (overrides default list: $COMPONENTS_TO_CHECK_IRSA_PG)"
+    echo "  -l                              Comma-separated list of Components to check IRSA for OpenSearch (overrides default list: $COMPONENTS_TO_CHECK_IRSA_OS)"
     echo "  -s                              Disable pod spawn for IRSA and connectivity verification."
     echo "                                  By default, the script spawns jobs in the specified namespace to perform"
     echo "                                  IRSA checks and network connectivity tests. These jobs use the amazonlinux:latest"

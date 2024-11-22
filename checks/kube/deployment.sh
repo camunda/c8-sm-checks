@@ -8,10 +8,13 @@ DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Define default variables
-NAMESPACE=""
-HELM_DEPLOYMENT_NAME="camunda"
+NAMESPACE="${NAMESPACE:-""}"
+HELM_DEPLOYMENT_NAME="${HELM_DEPLOYMENT_NAME:-"camunda"}"
 SKIP_CHECK_HELM_DEPLOYMENT=0
-REQUIRED_CONTAINERS=("connector" "optimize" "zeebe" "zeebe-gateway")
+
+DEFAULT_REQUIRED_CONTAINERS="connector,optimize,zeebe,zeebe-gateway"
+REQUIRED_CONTAINERS=()
+IFS=',' read -ra REQUIRED_CONTAINERS <<< "$DEFAULT_REQUIRED_CONTAINERS"
 
 usage() {
     echo "Usage: $0 [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]"
@@ -20,7 +23,7 @@ usage() {
     echo "  -n NAMESPACE                    Specify the namespace to use"
     echo "  -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: $HELM_DEPLOYMENT_NAME)"
     echo "  -l                              Skip checks of the helm deployment (default: $SKIP_CHECK_HELM_DEPLOYMENT)"
-    echo "  -c REQUIRED_CONTAINERS          Specify the list of containers to check (comma-separated, default: ${REQUIRED_CONTAINERS[*]})"
+    echo "  -c                              Specify the list of containers to check (comma-separated, default: ${DEFAULT_REQUIRED_CONTAINERS})"
     exit 1
 }
 

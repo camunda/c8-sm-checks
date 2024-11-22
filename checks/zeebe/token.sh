@@ -8,28 +8,28 @@ DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Define default variables
-ZEEBE_AUTHORIZATION_SERVER_URL=""
-ZEEBE_CLIENT_ID=""
-ZEEBE_CLIENT_SECRET=""
-ZEEBE_TOKEN_AUDIENCE=""
+ZEEBE_AUTHORIZATION_SERVER_URL="${ZEEBE_AUTHORIZATION_SERVER_URL:-""}"
+ZEEBE_CLIENT_ID="${ZEEBE_CLIENT_ID:-""}"
+ZEEBE_CLIENT_SECRET="${ZEEBE_CLIENT_SECRET:-""}"
+ZEEBE_TOKEN_AUDIENCE="${ZEEBE_TOKEN_AUDIENCE:-""}"
 SKIP_TLS_VERIFICATION=""
-CACERT=""
-CLIENTCERT=""
+CACERT="${CACERT:-""}"
+CLIENTCERT="${CLIENTCERT:-""}"
 EXTRA_FLAGS_CURL=""
 
 # Function to display script usage
 usage() {
-    echo "Usage: $0 [-h] [-a AUTH_SERVER_URL] [-i CLIENT_ID] [-s CLIENT_SECRET] [-u TOKEN_AUDIENCE]"
+    echo "Usage: $0 [-h] [-a ZEEBE_AUTHORIZATION_SERVER_URL] [-i ZEEBE_CLIENT_ID] [-s ZEEBE_CLIENT_SECRET] [-u ZEEBE_TOKEN_AUDIENCE]"
+    echo "       [-k] [-r CACERT] [-j CLIENTCERT]"
     echo "Options:"
     echo "  -h                                  Display this help message"
-    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g.: https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/t
-oken)"
+    echo "  -a ZEEBE_AUTHORIZATION_SERVER_URL   Specify the authorization server URL (e.g., https://local.distro.ultrawombat.com/auth/realms/camunda-platform/protocol/openid-connect/token)"
     echo "  -i ZEEBE_CLIENT_ID                  Specify the client ID"
     echo "  -s ZEEBE_CLIENT_SECRET              Specify the client secret"
     echo "  -u ZEEBE_TOKEN_AUDIENCE             Specify the token audience"
     echo "  -k                                  Skip TLS verification (insecure mode)"
-    echo "  -r CACERT                           Specify the path to CA certificate file"
-    echo "  -j CLIENTCERT                       Specify the path to client certificate file"
+    echo "  -r CACERT                           Specify the path to the CA certificate file"
+    echo "  -j CLIENTCERT                       Specify the path to the client certificate file"
     exit 1
 }
 
