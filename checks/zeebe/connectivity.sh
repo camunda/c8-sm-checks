@@ -227,7 +227,7 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
         echo "[INFO] Checking zbctl status to $ZEEBE_ADDRESS..."
 
         local zbctl_command
-        zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE} ZEEBE_ADDRESS=${ZEEBE_ADDRESS} zbctl status --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
+        zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE} ZEEBE_ADDRESS=${ZEEBE_ADDRESS} ZEEBE_HOST="" ZEEBE_PORT="" zbctl status --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
 
         echo "[INFO] Running command: ${zbctl_command}"
 
