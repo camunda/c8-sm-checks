@@ -8,7 +8,6 @@ DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # Define default variables
-ZEEBE_HOST="${ZEEBE_HOST:-""}"
 PROTO_FILE="${PROTO_FILE:-""}"
 SKIP_TLS_VERIFICATION=""
 EXTRA_FLAGS_CURL=""
@@ -24,18 +23,23 @@ ZEEBE_TOKEN_AUDIENCE="${ZEEBE_TOKEN_AUDIENCE:-""}"
 ZEEBE_TOKEN_SCOPE="${ZEEBE_TOKEN_SCOPE:-"camunda-identity"}"
 API_PROTOCOL="${API_PROTOCOL:-"grpc"}"
 
+ZEEBE_ADDRESS="${ZEEBE_ADDRESS:-""}"
+ZEEBE_DEFAULT_PORT="26500"
+ZEEBE_PORT="${ZEEBE_PORT:-$ZEEBE_DEFAULT_PORT}"
+
 # renovate: datasource=github-releases depName=camunda/zeebe
 ZEEBE_DEFAULT_VERSION="8.6.5"
 ZEEBE_VERSION="${ZEEBE_VERSION:-$ZEEBE_DEFAULT_VERSION}"
 
 # Function to display script usage
 usage() {
-    echo "Usage: $0 [-h] [-H ZEEBE_HOST] [-p ZEEBE_VERSION] [-f PROTO_FILE] [-k] [-r CACERT] [-j CLIENTCERT]"
+    echo "Usage: $0 [-h] [-H ZEEBE_ADDRESS[:ZEEBE_PORT]] [-p ZEEBE_VERSION] [-f PROTO_FILE] [-k] [-r CACERT] [-j CLIENTCERT]"
     echo "       [-a ZEEBE_AUTHORIZATION_SERVER_URL] [-i ZEEBE_CLIENT_ID] [-s ZEEBE_CLIENT_SECRET]"
     echo "       [-u ZEEBE_TOKEN_AUDIENCE] [-q API_PROTOCOL]"
     echo "Options:"
     echo "  -h                                    Display this help message"
-    echo "  -H ZEEBE_HOST                         Specify the Zeebe host with the port (e.g., zeebe.c8.camunda.example.com:443)"
+    echo "  -H ZEEBE_ADDRESS[:ZEEBE_PORT]           Specify the Zeebe address and optional port (e.g., zeebe.c8.camunda.example.com:443)"
+    echo "                                         If no port is provided, use default value of $ZEEBE_PORT"
     echo "  -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: $ZEEBE_VERSION)"
     echo "  -f PROTO_FILE                         Specify the path to the gateway.proto file or leave empty to download it (default behavior is to download the proto file)"
     echo "  -k                                    Skip TLS verification (insecure mode)"
@@ -56,7 +60,13 @@ while getopts ":hH:f:kr:j:a:i:s:u:p:q:" opt; do
             usage
             ;;
         H)
-            ZEEBE_HOST=$OPTARG
+            read -ra ADDR_PORT <<< "$OPTARG"
+            if [ ${#ADDR_PORT[@]} -eq 1 ]; then
+                ZEEBE_ADDRESS=${ADDR_PORT[0]}
+            else
+                ZEEBE_ADDRESS=${ADDR_PORT[0]}
+                ZEEBE_PORT=${ADDR_PORT[1]}
+            fi
             ;;
         f)
             PROTO_FILE=$OPTARG
@@ -92,25 +102,14 @@ while getopts ":hH:f:kr:j:a:i:s:u:p:q:" opt; do
             echo "Invalid option: $OPTARG" 1>&2
             usage
             ;;
-        :)
-            echo "Option -$OPTARG requires an argument." 1>&2
-            usage
-            ;;
     esac
 done
-
 SCRIPT_STATUS_OUTPUT=0
 
 # Check if all required options are provided
-if [ -z "$ZEEBE_HOST" ]; then
-    echo "Error: Missing one of the required options (list of all required options: ZEEBE_HOST)." 1>&2
+if [ -z "$ZEEBE_ADDRESS" ]; then
+    echo "Error: Missing one of the required options (list of all required options: ZEEBE_ADDRESS)." 1>&2
     usage
-fi
-
-# Extract host and port from ZEEBE_HOST
-if ! [[ $ZEEBE_HOST =~ ^[^:]+:[0-9]+$ ]]; then
-    echo "Error: Invalid format ZEEBE_HOST=$ZEEBE_HOST. Please provide host and port. Aborting." >&2
-    exit 1
 fi
 
 # pre-check requirements
@@ -164,8 +163,8 @@ fi
 
 if [ "$API_PROTOCOL" = "http" ]; then
     check_rest(){
-        echo "[INFO] Checking REST API connectivity to $ZEEBE_HOST"
-        curl_command="curl -so /dev/null -L ${EXTRA_FLAGS_CURL} \"$ZEEBE_HOST/v2/topology\""
+        echo "[INFO] Checking REST API connectivity to $ZEEBE_ADDRESS:$ZEEBE_PORT"
+        curl_command="curl -so /dev/null -L ${EXTRA_FLAGS_CURL} \"$ZEEBE_ADDRESS:$ZEEBE_PORT/v2/topology\""
         echo "[INFO] Running command: ${curl_command}"
 
         if eval "${curl_command}"; then
@@ -181,8 +180,8 @@ fi
 if [ "$API_PROTOCOL" = "grpc" ]; then
     # Check HTTP/2 connectivity
     check_http2(){
-        echo "[INFO] Checking HTTP/2 connectivity to $ZEEBE_HOST"
-        curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://$ZEEBE_HOST\""
+        echo "[INFO] Checking HTTP/2 connectivity to ${ZEEBE_ADDRESS}:${ZEEBE_PORT}"
+        curl_command="curl -so /dev/null --http2 ${EXTRA_FLAGS_CURL} \"https://${ZEEBE_ADDRESS}:${ZEEBE_PORT}\""
         echo "[INFO] Running command: ${curl_command}"
 
         if eval "${curl_command}"; then
@@ -216,10 +215,10 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
 
     # Check gRPC connectivity using grpcurl
     check_grpc(){
-        echo "[INFO] Checking gRPC connectivity to $ZEEBE_HOST"
+        echo "[INFO] Checking gRPC connectivity to ${ZEEBE_ADDRESS}:${ZEEBE_PORT}"
 
         local grcp_curl_command
-        grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_HOST}\" gateway_protocol.Gateway/Topology"
+        grcp_curl_command="grpcurl ${EXTRA_FLAGS_GRPCURL} -proto \"${PROTO_FILE}\" \"${ZEEBE_ADDRESS}:${ZEEBE_PORT}\" gateway_protocol.Gateway/Topology"
         echo "[INFO] Running command: ${grcp_curl_command}"
 
 
@@ -234,17 +233,10 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
 
     # Check zbctl status
     check_zbctl() {
-        echo "[INFO] Checking zbctl status to $ZEEBE_HOST..."
-
-        zbctl_address=$(echo "$ZEEBE_HOST" | cut -d':' -f1)
-        zbctl_port=$(echo "$ZEEBE_HOST" | cut -d':' -f2)
-
-        if [ -z "$zbctl_port" ]; then
-            zbctl_port="26500"
-        fi
+        echo "[INFO] Checking zbctl status to $ZEEBE_ADDRESS:$ZEEBE_PORT..."
 
         local zbctl_command
-        zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE} ZEEBE_ADDRESS=${zbctl_address} ZEEBE_PORT=${zbctl_port} zbctl status --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
+        zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE} ZEEBE_ADDRESS=${ZEEBE_ADDRESS} ZEEBE_PORT=${ZEEBE_PORT} zbctl status --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
 
         echo "[INFO] Running command: ${zbctl_command}"
 

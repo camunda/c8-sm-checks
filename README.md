@@ -167,12 +167,13 @@ This script verifies connectivity to a Zeebe Gateway instance using HTTP/2 and g
 
 ##### Usage:
 ```bash
-Usage: ./checks/zeebe/connectivity.sh [-h] [-H ZEEBE_HOST] [-p ZEEBE_VERSION] [-f PROTO_FILE] [-k] [-r CACERT] [-j CLIENTCERT]
+Usage: ./checks/zeebe/connectivity.sh [-h] [-H ZEEBE_ADDRESS[:ZEEBE_PORT]] [-p ZEEBE_VERSION] [-f PROTO_FILE] [-k] [-r CACERT] [-j CLIENTCERT]
        [-a ZEEBE_AUTHORIZATION_SERVER_URL] [-i ZEEBE_CLIENT_ID] [-s ZEEBE_CLIENT_SECRET]
        [-u ZEEBE_TOKEN_AUDIENCE] [-q API_PROTOCOL]
 Options:
   -h                                    Display this help message
-  -H ZEEBE_HOST                         Specify the Zeebe host with the port (e.g., zeebe.c8.camunda.example.com:443)
+  -H ZEEBE_ADDRESS[:ZEEBE_PORT]           Specify the Zeebe address and optional port (e.g., zeebe.c8.camunda.example.com:443)
+                                         If no port is provided, use default value of 26500
   -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: 8.6.5)
   -f PROTO_FILE                         Specify the path to the gateway.proto file or leave empty to download it (default behavior is to download the proto file)
   -k                                    Skip TLS verification (insecure mode)
