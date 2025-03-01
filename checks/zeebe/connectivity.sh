@@ -26,7 +26,7 @@ API_PROTOCOL="${API_PROTOCOL:-"grpc"}"
 ZEEBE_ADDRESS="${ZEEBE_ADDRESS:-""}"
 
 # renovate: datasource=github-releases depName=camunda/zeebe
-ZEEBE_DEFAULT_VERSION="8.6.9"
+ZEEBE_DEFAULT_VERSION="8.6.10"
 ZEEBE_VERSION="${ZEEBE_VERSION:-$ZEEBE_DEFAULT_VERSION}"
 
 # Function to display script usage
