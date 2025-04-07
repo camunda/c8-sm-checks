@@ -163,7 +163,7 @@ Options:
 
 ##### Description:
 
-This script verifies connectivity to a Zeebe Gateway instance using HTTP/2 and gRPC protocols. It also checks the status using `zbctl`. Alternatively it can be used to verify the REST API (8.6+) endpoint.
+This script verifies connectivity to a Zeebe Gateway instance using HTTP/2 and gRPC protocols.
 
 ##### Usage:
 ```bash
@@ -194,7 +194,6 @@ Options:
 
 - `curl`: Required for making HTTP requests.
 - `grpcurl`: Required for testing gRPC connectivity.
-- `zbctl`: Required for checking Zeebe status.
 - A registred [[1] application on C8 Identity](#Reference)
 
 ## Reference
