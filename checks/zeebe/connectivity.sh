@@ -12,7 +12,6 @@ PROTO_FILE="${PROTO_FILE:-""}"
 SKIP_TLS_VERIFICATION=""
 EXTRA_FLAGS_CURL=""
 EXTRA_FLAGS_GRPCURL=""
-EXTRA_FLAGS_ZBCTL=""
 EXTRA_FLAGS_TOKEN=""
 CACERT="${CACERT:-""}"
 CLIENTCERT="${CLIENTCERT:-""}"
@@ -108,27 +107,23 @@ command -v curl >/dev/null 2>&1 || { echo >&2 "Error: curl is required but not i
 
 if [ "$API_PROTOCOL" = "grpc" ]; then
     command -v grpcurl >/dev/null 2>&1 || { echo >&2 "Error: grpcurl is required but not installed. Please install it (https://github.com/fullstorydev/grpcurl?tab=readme-ov-file#installation). Aborting."; exit 1; }
-    command -v zbctl >/dev/null 2>&1 || { echo >&2 "Error: zbctl is required but not installed. Please install it (https://docs.camunda.io/docs/apis-tools/cli-client/). Aborting."; exit 1; }
 fi
 
 if [ "$SKIP_TLS_VERIFICATION" = true ]; then
     EXTRA_FLAGS_CURL="-k"
     EXTRA_FLAGS_GRPCURL="-insecure"
-    EXTRA_FLAGS_ZBCTL="--insecure"
     EXTRA_FLAGS_TOKEN="-k"
 fi
 
 if [ -n "${CACERT}" ]; then
     EXTRA_FLAGS_CURL+=" -cacert \"${CACERT}\" "
     EXTRA_FLAGS_GRPCURL+=" -cacert \"${CACERT}\" "
-    EXTRA_FLAGS_ZBCTL+=" --authority \"${CACERT}\" "
     EXTRA_FLAGS_TOKEN+=" -p \"${CACERT}\" "
 fi
 
 if [ -n "${CLIENTCERT}" ]; then
     EXTRA_FLAGS_CURL+=" -cert \"${CLIENTCERT}\" "
     EXTRA_FLAGS_GRPCURL+=" -cert \"${CLIENTCERT}\" "
-    EXTRA_FLAGS_ZBCTL+=" --certPath \"${CLIENTCERT}\" "
     EXTRA_FLAGS_TOKEN+=" -j \"${CLIENTCERT}\" "
 fi
 
@@ -221,24 +216,6 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
         fi
     }
     check_grpc
-
-    # Check zbctl status
-    check_zbctl() {
-        echo "[INFO] Checking zbctl status to $ZEEBE_ADDRESS..."
-
-        local zbctl_command
-        zbctl_command="ZEEBE_TOKEN_SCOPE=${ZEEBE_TOKEN_SCOPE} ZEEBE_ADDRESS=${ZEEBE_ADDRESS} ZEEBE_HOST="" ZEEBE_PORT="" zbctl status --authzUrl \"${ZEEBE_AUTHORIZATION_SERVER_URL}\" --clientId \"${ZEEBE_CLIENT_ID}\" --clientSecret \"${ZEEBE_CLIENT_SECRET}\" --audience \"${ZEEBE_TOKEN_AUDIENCE}\" ${EXTRA_FLAGS_ZBCTL}"
-
-        echo "[INFO] Running command: ${zbctl_command}"
-
-        if eval "${zbctl_command}"; then
-            echo "[OK] zbctl status"
-        else
-            echo "[FAIL] zbctl status" 1>&2
-            SCRIPT_STATUS_OUTPUT=6
-        fi
-    }
-    check_zbctl
 fi
 
 # Check if SCRIPT_STATUS_OUTPUT is not equal to zero
