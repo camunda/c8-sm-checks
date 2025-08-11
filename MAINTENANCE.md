@@ -10,7 +10,7 @@ _Note: Please keep this document updated with any changes in maintenance procedu
 - Update documentation related to new features or changes.
     - `README.md`
     - Official Camunda documentation:
-        - [C8SM: Troubleshooting](https://github.com/camunda/camunda-docs/blob/main/docs/self-managed/operational-guides/troubleshooting/troubleshooting.md)
+        - [C8SM: Troubleshooting](https://github.com/camunda/camunda-docs/blob/main/docs/self-managed/operational-guides/troubleshooting.md)
 
 - Make internal announcements on Slack regarding upcoming releases.
     - `#infex-internal`
