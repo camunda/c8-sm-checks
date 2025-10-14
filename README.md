@@ -4,6 +4,8 @@
 [![tests](https://github.com/camunda/c8-sm-checks/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/camunda/c8-sm-checks/actions/workflows/lint.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+> ⚠️ **Warning**: Work is currently in progress to adapt these checks for Camunda Platform 8.8. Some features may be incomplete or subject to change.
+
 ## Overview
 
 This project aims to perform a health check of a Kubernetes installation with Camunda Platform and Zeebe. It provides scripts for verifying connectivity and configuration within the Kubernetes cluster as well as with Zeebe components.
