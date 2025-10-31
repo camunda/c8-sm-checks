@@ -16,7 +16,7 @@ SPAWN_POD=true  # By default, the pod will spawn for verification
 
 # List of components from the Helm chart to check for IRSA
 # The first list is for components that need IRSA for OpenSearch
-COMPONENTS_TO_CHECK_IRSA_OS="zeebe,operate,tasklist,optimize"
+COMPONENTS_TO_CHECK_IRSA_OS="orchestration,optimize"
 
 # The second list is for components that need IRSA to authenticate to PostgreSQL
 COMPONENTS_TO_CHECK_IRSA_PG="identityKeycloak,identity,webModeler"
@@ -26,9 +26,7 @@ EXCLUDE_COMPONENTS="${EXCLUDE_COMPONENTS:-""}"
 
 # Associative array for case-insensitive component mapping
 COMPONENT_MAPPING=(
-    "zeebe:zeebe"
-    "operate:operate"
-    "tasklist:tasklist"
+    "orchestration:orchestration"
     "optimize:optimize"
     "identitykeycloak:identityKeycloak"
     "identity:identity"
