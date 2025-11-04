@@ -392,7 +392,8 @@ check_eks_cluster() {
 
     # Loop through each EKS cluster to find the matching one
     cluster_found=false
-    while read -r cluster_name; do
+    # Convert space/tab separated list to array and iterate
+    for cluster_name in $eks_clusters; do
         # Describe the cluster to get the control plane URL
         eks_describe_command="aws eks describe-cluster --name \"$cluster_name\" --region \"$region\" --query 'cluster.endpoint' --output text"
         echo "[INFO] Running command: $eks_describe_command"
@@ -404,7 +405,7 @@ check_eks_cluster() {
             cluster_found=true
             break
         fi
-    done <<< "$eks_clusters"
+    done
 
     if [[ "$cluster_found" == false ]]; then
         echo "[FAIL] No matching EKS cluster found for control plane URL: $control_plane_url." >&2
