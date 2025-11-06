@@ -151,7 +151,7 @@ Options:
 
 ##### Example:
 ```bash
-./checks/zeebe/token.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.example.com
+./checks/zeebe/token.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u orchestration-api
 ```
 
 ##### Dependencies:
@@ -173,7 +173,7 @@ Usage: ./checks/zeebe/connectivity.sh [-h] [-H ZEEBE_ADDRESS] [-p ZEEBE_VERSION]
 Options:
   -h                                    Display this help message
   -H ZEEBE_ADDRESS                      Specify the Zeebe address and optional port (e.g., zeebe.c8.camunda.example.com:443)
-  -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: 8.6.5)
+  -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: 8.8 - major.minor only)
   -f PROTO_FILE                         Specify the path to the gateway.proto file or leave empty to download it (default behavior is to download the proto file)
   -k                                    Skip TLS verification (insecure mode)
   -r CACERT                             Specify the path to the CA certificate file
@@ -187,7 +187,7 @@ Options:
 
 ##### Example:
 ```bash
-./checks/zeebe/connectivity.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u zeebe.distro.example.com -H zeebe.local.distro.example.com:443
+./checks/zeebe/connectivity.sh -a https://local.distro.example.com/auth/realms/camunda-platform/protocol/openid-connect/token -i myclientid -s 0Rn28VrQxGNxowrCWe6wbujwFghO4990 -u orchestration-api -H zeebe.local.distro.example.com:443
 ```
 
 ### Dependencies:
