@@ -24,7 +24,7 @@ API_PROTOCOL="${API_PROTOCOL:-"grpc"}"
 
 ZEEBE_ADDRESS="${ZEEBE_ADDRESS:-""}"
 
-# renovate: datasource=github-releases depName=camunda/zeebe
+# TODO: [release-duty] before the release, update this! Only major-minor due to stable branch naming from upstream camunda/camunda
 ZEEBE_DEFAULT_VERSION="8.8"
 ZEEBE_VERSION="${ZEEBE_VERSION:-$ZEEBE_DEFAULT_VERSION}"
 
