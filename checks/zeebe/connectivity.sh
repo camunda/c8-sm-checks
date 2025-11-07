@@ -24,8 +24,8 @@ API_PROTOCOL="${API_PROTOCOL:-"grpc"}"
 
 ZEEBE_ADDRESS="${ZEEBE_ADDRESS:-""}"
 
-# renovate: datasource=github-releases depName=camunda/zeebe
-ZEEBE_DEFAULT_VERSION="8.8.2"
+# TODO: [release-duty] before the release, update this! Only major-minor due to stable branch naming from upstream camunda/camunda
+ZEEBE_DEFAULT_VERSION="8.8"
 ZEEBE_VERSION="${ZEEBE_VERSION:-$ZEEBE_DEFAULT_VERSION}"
 
 # Function to display script usage
@@ -184,7 +184,7 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
         echo "[INFO] Downloading gateway.proto for zeebe=${ZEEBE_VERSION}..."
 
         local curl_download_command
-        curl_download_command="curl -f \"https://raw.githubusercontent.com/camunda/zeebe/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto\" -o \"$PROTO_FILE\""
+        curl_download_command="curl -f \"https://raw.githubusercontent.com/camunda/camunda/refs/heads/stable/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto\" -o \"$PROTO_FILE\""
         echo "[INFO] Running command: ${curl_download_command}"
 
         if eval "${curl_download_command}"; then

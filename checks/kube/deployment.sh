@@ -12,7 +12,7 @@ NAMESPACE="${NAMESPACE:-""}"
 HELM_DEPLOYMENT_NAME="${HELM_DEPLOYMENT_NAME:-"camunda"}"
 SKIP_CHECK_HELM_DEPLOYMENT=0
 
-DEFAULT_REQUIRED_CONTAINERS="connector,optimize,zeebe,zeebe-gateway"
+DEFAULT_REQUIRED_CONTAINERS="connector,optimize,zeebe"
 REQUIRED_CONTAINERS=()
 IFS=',' read -ra REQUIRED_CONTAINERS <<< "$DEFAULT_REQUIRED_CONTAINERS"
 
@@ -102,7 +102,7 @@ check_unhealthy_pods() {
 
     local unhealthy_pods
     local unhealthy_pods_command
-    unhealthy_pods_command="kubectl get pods -n \"$NAMESPACE\" --field-selector=status.phase!=Running --no-headers"
+    unhealthy_pods_command="kubectl get pods -n \"$NAMESPACE\" --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers"
     echo "[INFO] Running command: ${unhealthy_pods_command}"
     unhealthy_pods=$(eval "${unhealthy_pods_command}")
 

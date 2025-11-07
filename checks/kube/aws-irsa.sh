@@ -16,7 +16,7 @@ SPAWN_POD=true  # By default, the pod will spawn for verification
 
 # List of components from the Helm chart to check for IRSA
 # The first list is for components that need IRSA for OpenSearch
-COMPONENTS_TO_CHECK_IRSA_OS="zeebe,operate,tasklist,optimize"
+COMPONENTS_TO_CHECK_IRSA_OS="orchestration,optimize"
 
 # The second list is for components that need IRSA to authenticate to PostgreSQL
 COMPONENTS_TO_CHECK_IRSA_PG="identityKeycloak,identity,webModeler"
@@ -26,9 +26,7 @@ EXCLUDE_COMPONENTS="${EXCLUDE_COMPONENTS:-""}"
 
 # Associative array for case-insensitive component mapping
 COMPONENT_MAPPING=(
-    "zeebe:zeebe"
-    "operate:operate"
-    "tasklist:tasklist"
+    "orchestration:orchestration"
     "optimize:optimize"
     "identitykeycloak:identityKeycloak"
     "identity:identity"
@@ -276,43 +274,88 @@ get_helm_chart_default_values() {
         exit 1
     fi
 
-    # Add the Camunda Helm repository
-    helm_repo_command="helm repo add camunda https://helm.camunda.io"
-    echo "[INFO] Running command: ${helm_repo_command}"
-    helm_repo_output=$(eval "$helm_repo_command" 2>&1)
+    # Check if version is 0.0.0 (snapshot)
+    if [[ "$version" == "0.0.0" ]]; then
+        echo "[INFO] Detected snapshot version 0.0.0, retrieving app version to fetch values from GitHub."
+        command -v curl >/dev/null 2>&1 || { echo 1>&2 "Error: curl is required but not installed. Please install it. Aborting."; exit 1; }
 
-    # shellcheck disable=SC2181
-    if [ $? -eq 0 ]; then
-        echo "[OK] Added Helm repository."
+        # Get app version from deployed chart
+        app_version_command="echo '$CAMUNDA_HELM_CHART_DEPLOYMENT' | jq -r '.app_version'"
+        echo "[INFO] Running command: ${app_version_command}"
+        app_version=$(eval "${app_version_command}")
+
+        if [[ -z "$app_version" || "$app_version" == "null" ]]; then
+            echo "[FAIL] Failed to retrieve app version from deployment." 1>&2
+            exit 1
+        fi
+
+        echo "[INFO] Found app version: $app_version"
+
+        # Extract major.minor version (e.g., "8.9.x" -> "8.9")
+        chart_version=$(echo "$app_version" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')
+
+        if [[ -z "$chart_version" ]]; then
+            echo "[FAIL] Failed to parse chart version from app version: $app_version" 1>&2
+            exit 1
+        fi
+
+        echo "[INFO] Using chart version: $chart_version"
+
+        # Download values from GitHub
+        github_url="https://raw.githubusercontent.com/camunda/camunda-platform-helm/refs/heads/main/charts/camunda-platform-${chart_version}/values.yaml"
+        echo "[INFO] Downloading values from: $github_url"
+
+        helm_values_command="curl -fsSL \"$github_url\" | yq eval -o=json -"
+        echo "[INFO] Running command: ${helm_values_command}"
+        HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1)
+
+        # shellcheck disable=SC2181
+        if [ $? -eq 0 ]; then
+            echo "[OK] Retrieved default values from GitHub."
+        else
+            echo "[FAIL] Failed to retrieve default values from GitHub: $HELM_CHART_DEFAULT_VALUES" 1>&2
+            exit 1
+        fi
     else
-        echo "[FAIL] Failed to add Helm repository: $helm_repo_output" 1>&2
-        exit 1
-    fi
+        # Normal flow for non-snapshot versions
+        # Add the Camunda Helm repository
+        helm_repo_command="helm repo add camunda https://helm.camunda.io"
+        echo "[INFO] Running command: ${helm_repo_command}"
+        helm_repo_output=$(eval "$helm_repo_command" 2>&1)
 
-    # Update the Helm repository
-    helm_update_command="helm repo update"
-    echo "[INFO] Running command: ${helm_update_command}"
-    helm_update_output=$(eval "$helm_update_command" 2>&1)
+        # shellcheck disable=SC2181
+        if [ $? -eq 0 ]; then
+            echo "[OK] Added Helm repository."
+        else
+            echo "[FAIL] Failed to add Helm repository: $helm_repo_output" 1>&2
+            exit 1
+        fi
 
-    # shellcheck disable=SC2181
-    if [ $? -eq 0 ]; then
-        echo "[OK] Updated Helm repository."
-    else
-        echo "[FAIL] Failed to update Helm repository: $helm_update_output" 1>&2
-        exit 1
-    fi
+        # Update the Helm repository
+        helm_update_command="helm repo update"
+        echo "[INFO] Running command: ${helm_update_command}"
+        helm_update_output=$(eval "$helm_update_command" 2>&1)
 
-    # Retrieve the default values and store them in a variable
-    helm_values_command="helm show values camunda/$chart_name --version \"$version\" | yq eval -o=json -"
-    echo "[INFO] Running command: ${helm_values_command}"
-    HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1)
+        # shellcheck disable=SC2181
+        if [ $? -eq 0 ]; then
+            echo "[OK] Updated Helm repository."
+        else
+            echo "[FAIL] Failed to update Helm repository: $helm_update_output" 1>&2
+            exit 1
+        fi
 
-    # shellcheck disable=SC2181
-    if [ $? -eq 0 ]; then
-        echo "[OK] Retrieved default values from the chart."
-    else
-        echo "[FAIL] Failed to retrieve default values from the chart: $HELM_CHART_DEFAULT_VALUES" 1>&2
-        exit 1
+        # Retrieve the default values and store them in a variable
+        helm_values_command="helm show values camunda/$chart_name --version \"$version\" | yq eval -o=json -"
+        echo "[INFO] Running command: ${helm_values_command}"
+        HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1)
+
+        # shellcheck disable=SC2181
+        if [ $? -eq 0 ]; then
+            echo "[OK] Retrieved default values from the chart."
+        else
+            echo "[FAIL] Failed to retrieve default values from the chart: $HELM_CHART_DEFAULT_VALUES" 1>&2
+            exit 1
+        fi
     fi
 }
 get_helm_chart_default_values
@@ -349,7 +392,8 @@ check_eks_cluster() {
 
     # Loop through each EKS cluster to find the matching one
     cluster_found=false
-    while read -r cluster_name; do
+    # Convert space/tab separated list to array and iterate
+    for cluster_name in $eks_clusters; do
         # Describe the cluster to get the control plane URL
         eks_describe_command="aws eks describe-cluster --name \"$cluster_name\" --region \"$region\" --query 'cluster.endpoint' --output text"
         echo "[INFO] Running command: $eks_describe_command"
@@ -361,7 +405,7 @@ check_eks_cluster() {
             cluster_found=true
             break
         fi
-    done <<< "$eks_clusters"
+    done
 
     if [[ "$cluster_found" == false ]]; then
         echo "[FAIL] No matching EKS cluster found for control plane URL: $control_plane_url." >&2
