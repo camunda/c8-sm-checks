@@ -184,7 +184,6 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
         echo "[INFO] Downloading gateway.proto for zeebe=${ZEEBE_VERSION}..."
 
         local curl_download_command
-        # TODO: backport upstream
         curl_download_command="curl -f \"https://raw.githubusercontent.com/camunda/camunda/refs/heads/stable/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto\" -o \"$PROTO_FILE\""
         echo "[INFO] Running command: ${curl_download_command}"
 
