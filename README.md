@@ -200,6 +200,17 @@ Options:
 
 - [[1] C8: How to register your application on Identity](https://github.com/camunda-community-hub/camunda-8-examples/blob/main/payment-example-process-application/kube/README.md#4-generating-an-m2m-token-for-our-application).
 
+## Development Setup
+
+To manage the specific versions of this project, we use the following tools:
+
+- **[asdf](https://asdf-vm.com/)** version manager (see the [installation guide](https://asdf-vm.com/guide/getting-started.html)).
+- **[just](https://github.com/casey/just)** as a command runner
+  You can install all required plugins:
+  ```bash
+  just install-tooling
+  ```
+
 ## License
 
 
