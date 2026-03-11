@@ -274,9 +274,8 @@ get_helm_chart_default_values() {
         exit 1
     fi
 
-    # Check if version is 0.0.0 (snapshot)
-    if [[ "$version" == "0.0.0" ]]; then
-        echo "[INFO] Detected snapshot version 0.0.0, retrieving app version to fetch values from GitHub."
+    # Helper: retrieve values from GitHub using the app_version from the deployed chart
+    _fetch_values_from_github() {
         command -v curl >/dev/null 2>&1 || { echo 1>&2 "Error: curl is required but not installed. Please install it. Aborting."; exit 1; }
 
         # Get app version from deployed chart
@@ -316,6 +315,12 @@ get_helm_chart_default_values() {
             echo "[FAIL] Failed to retrieve default values from GitHub: $HELM_CHART_DEFAULT_VALUES" 1>&2
             exit 1
         fi
+    }
+
+    # Check if version is 0.0.0 (snapshot)
+    if [[ "$version" == "0.0.0" ]]; then
+        echo "[INFO] Detected snapshot version 0.0.0, retrieving app version to fetch values from GitHub."
+        _fetch_values_from_github
     else
         # Normal flow for non-snapshot versions
         # Add the Camunda Helm repository
@@ -353,8 +358,8 @@ get_helm_chart_default_values() {
         if [ $? -eq 0 ]; then
             echo "[OK] Retrieved default values from the chart."
         else
-            echo "[FAIL] Failed to retrieve default values from the chart: $HELM_CHART_DEFAULT_VALUES" 1>&2
-            exit 1
+            echo "[WARNING] Failed to retrieve default values from Helm repo for version $version (chart may not be published yet). Falling back to GitHub." 1>&2
+            _fetch_values_from_github
         fi
     fi
 }
