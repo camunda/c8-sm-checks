@@ -145,9 +145,9 @@ check_ingress_class_and_config() {
         echo "[INFO] Running command: ${ingress_class_command}"
         ingress_class=$(eval "${ingress_class_command}")
 
-        if [ "$ingress_class" != "nginx" ]; then
-            echo "[FAIL] Ingress class is not nginx for $ingress_name. Actual class: $ingress_class." >&2
-            echo "If you configured it on purpose, please the SKIP_CHECK_INGRESS_CLASS option." >&2
+        if [ "$ingress_class" != "nginx" ] && [ "$ingress_class" != "contour" ]; then
+            echo "[FAIL] Ingress class is not nginx or contour for $ingress_name. Actual class: $ingress_class." >&2
+            echo "If you configured it on purpose, please use the SKIP_CHECK_INGRESS_CLASS option." >&2
             SCRIPT_STATUS_OUTPUT=3
         else
             echo "[OK] Ingress class for $ingress_name is configured correctly with $ingress_class."
