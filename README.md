@@ -173,7 +173,7 @@ Usage: ./checks/zeebe/connectivity.sh [-h] [-H ZEEBE_ADDRESS] [-p ZEEBE_VERSION]
 Options:
   -h                                    Display this help message
   -H ZEEBE_ADDRESS                      Specify the Zeebe address and optional port (e.g., zeebe.c8.camunda.example.com:443)
-  -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: 8.8 - major.minor only)
+  -p ZEEBE_VERSION                      Specify the Zeebe version (default is the latest version: 8.9 - major.minor only)
   -f PROTO_FILE                         Specify the path to the gateway.proto file or leave empty to download it (default behavior is to download the proto file)
   -k                                    Skip TLS verification (insecure mode)
   -r CACERT                             Specify the path to the CA certificate file
