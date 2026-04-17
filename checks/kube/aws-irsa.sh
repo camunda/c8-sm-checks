@@ -471,7 +471,7 @@ get_service_account_name() {
     IFS=',' read -r -a components <<< "$component_list"
     for component in "${components[@]}"; do
 
-        if [[ $component =~ $EXCLUDE_PATTERN ]]; then
+        if [[ -n "$EXCLUDE_PATTERN" && $component =~ $EXCLUDE_PATTERN ]]; then
             echo "[INFO] Skipping excluded component: $component"
             continue
         fi
@@ -642,8 +642,21 @@ check_irsa_opensearch_requirements() {
 check_opensearch_iam_enabled() {
     opensearch_url=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.url.host')
 
+    # Fallback to per-component paths (Camunda 8.8+: orchestration/optimize have their own opensearch config)
     if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        echo "[FAIL] The OpenSearch URL is not set. Please ensure that '.global.opensearch.url.host' is correctly specified in the Helm chart values." 1>&2
+        opensearch_url=$(echo "$HELM_CHART_VALUES" | jq -r '.optimize.database.opensearch.url.host // empty')
+    fi
+    if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
+        # orchestration stores the full URL, extract the host
+        local full_url
+        full_url=$(echo "$HELM_CHART_VALUES" | jq -r '.orchestration.data.secondaryStorage.opensearch.url // empty')
+        if [[ -n "$full_url" && "$full_url" != "null" ]]; then
+            opensearch_url=$(echo "$full_url" | sed -E 's|^https?://||' | sed -E 's|(/.*)||' | sed -E 's|:[0-9]+$||')
+        fi
+    fi
+
+    if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
+        echo "[FAIL] The OpenSearch URL is not set. Please ensure that '.global.opensearch.url.host' or per-component opensearch URL is correctly specified in the Helm chart values." 1>&2
         SCRIPT_STATUS_OUTPUT=61
         return
     fi
@@ -809,8 +822,19 @@ check_aurora_cluster() {
 check_irsa_aurora_requirements() {
     # Filter and loop over components to check while excluding the excluded ones
     for component in $(echo "$COMPONENTS_TO_CHECK_IRSA_PG" | tr ',' ' '); do
-        if [[ $component =~ $EXCLUDE_PATTERN ]]; then
+        if [[ -n "$EXCLUDE_PATTERN" && $component =~ $EXCLUDE_PATTERN ]]; then
             echo "[INFO] Skipping excluded component: $component"
+            continue
+        fi
+
+        # Check if component is enabled in HELM_CHART_VALUES
+        enabled_value=$(echo "$HELM_CHART_VALUES" | jq -r --arg comp "$component" '.[$comp].enabled')
+        if [ "$enabled_value" == "null" ]; then
+            enabled_value=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r --arg comp "$component" '.[$comp].enabled')
+        fi
+
+        if [[ "$enabled_value" == "false" ]]; then
+            echo "[INFO] Component $component is disabled, skipping verification."
             continue
         fi
 
