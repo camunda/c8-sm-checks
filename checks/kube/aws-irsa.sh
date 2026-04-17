@@ -827,6 +827,17 @@ check_irsa_aurora_requirements() {
             continue
         fi
 
+        # Check if component is enabled in HELM_CHART_VALUES
+        enabled_value=$(echo "$HELM_CHART_VALUES" | jq -r --arg comp "$component" '.[$comp].enabled')
+        if [ "$enabled_value" == "null" ]; then
+            enabled_value=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r --arg comp "$component" '.[$comp].enabled')
+        fi
+
+        if [[ "$enabled_value" == "false" ]]; then
+            echo "[INFO] Component $component is disabled, skipping verification."
+            continue
+        fi
+
         case "$component" in
             "identityKeycloak")
                 # Retrieve keycloak_enabled setting from HELM_CHART_VALUES, or fallback to HELM_CHART_DEFAULT_VALUES
