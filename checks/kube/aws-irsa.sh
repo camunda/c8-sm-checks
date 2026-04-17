@@ -651,7 +651,7 @@ check_opensearch_iam_enabled() {
         local full_url
         full_url=$(echo "$HELM_CHART_VALUES" | jq -r '.orchestration.data.secondaryStorage.opensearch.url // empty')
         if [[ -n "$full_url" && "$full_url" != "null" ]]; then
-            opensearch_url=$(echo "$full_url" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+$||')
+            opensearch_url=$(echo "$full_url" | sed -E 's|^https?://||' | sed -E 's|(/.*)||' | sed -E 's|:[0-9]+$||')
         fi
     fi
 
