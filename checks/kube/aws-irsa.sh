@@ -1102,16 +1102,50 @@ check_irsa_aurora_requirements() {
                     fi
                 fi
 
-                web_modeler_user=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.restapi.externalDatabase.user // empty")
-                if [[ -z "$web_modeler_user" || "$web_modeler_user" == "null" ]]; then
-                    web_modeler_user=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${component}.restapi.externalDatabase.user // empty")
+                # Chart 15.x+ renamed `user` to `username`. Pick the expected key
+                # based on what the deployed chart defaults define so the check
+                # only validates the key the chart actually consumes; warn if
+                # the user supplies the other (unsupported) key.
+                wm_db_path="${component}.restapi.externalDatabase"
+                wm_username_in_defaults=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_db_path} | has(\"username\")")
+                wm_user_in_defaults=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_db_path} | has(\"user\")")
+
+                if [[ "$wm_username_in_defaults" == "true" ]]; then
+                    web_modeler_username_key="username"
+                elif [[ "$wm_user_in_defaults" == "true" ]]; then
+                    web_modeler_username_key="user"
+                else
+                    # Defaults define neither (unexpected): infer from user values, prefer chart 15.x+ naming.
+                    if [[ "$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_db_path} | has(\"username\")")" == "true" ]]; then
+                        web_modeler_username_key="username"
+                    else
+                        web_modeler_username_key="user"
+                    fi
                 fi
 
-                if [[ -z "$web_modeler_user" || "$web_modeler_user" == "null" ]]; then
-                    echo "[FAIL] $component.restapi.externalDatabase.user is not defined in your helm values or defaults." 1>&2
+                # Warn if the user supplied the key the deployed chart does not consume.
+                if [[ "$web_modeler_username_key" == "username" && "$wm_user_in_defaults" != "true" ]]; then
+                    unsupported_in_values=$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_db_path} | has(\"user\")")
+                    if [[ "$unsupported_in_values" == "true" ]]; then
+                        echo "[WARN] $wm_db_path.user is set in your values but the deployed chart only consumes .username; the value will be ignored." 1>&2
+                    fi
+                elif [[ "$web_modeler_username_key" == "user" && "$wm_username_in_defaults" != "true" ]]; then
+                    unsupported_in_values=$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_db_path} | has(\"username\")")
+                    if [[ "$unsupported_in_values" == "true" ]]; then
+                        echo "[WARN] $wm_db_path.username is set in your values but the deployed chart only consumes .user; the value will be ignored." 1>&2
+                    fi
+                fi
+
+                web_modeler_username=$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_db_path}.${web_modeler_username_key} // empty")
+                if [[ -z "$web_modeler_username" || "$web_modeler_username" == "null" ]]; then
+                    web_modeler_username=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_db_path}.${web_modeler_username_key} // empty")
+                fi
+
+                if [[ -z "$web_modeler_username" || "$web_modeler_username" == "null" ]]; then
+                    echo "[FAIL] $wm_db_path.${web_modeler_username_key} is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=96
                 else
-                    echo "[OK] $component.restapi.externalDatabase.user is correctly set: $web_modeler_user"
+                    echo "[OK] $wm_db_path.${web_modeler_username_key} is correctly set: $web_modeler_username"
                 fi
 
                 check_aurora_cluster "$web_modeler_db_host" "$web_modeler_db_port" "$component"
