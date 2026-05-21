@@ -857,9 +857,13 @@ check_irsa_aurora_requirements() {
                     echo "[OK] $component.postgresql.enabled is correctly set to false in your helm values."
                 fi
 
-                keycloak_image=$(echo "$HELM_CHART_VALUES" | jq -r ".identityKeycloak.image // empty")
+                # Read the repository field directly: when user values set
+                # only sub-keys like image.pullSecrets without overriding
+                # repository, ".identityKeycloak.image" resolves to a non-empty
+                # JSON object and the defaults fallback never fires.
+                keycloak_image=$(echo "$HELM_CHART_VALUES" | jq -r ".identityKeycloak.image.repository // empty")
                 if [[ -z "$keycloak_image" || "$keycloak_image" == "null" ]]; then
-                    keycloak_image=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".identityKeycloak.image // empty")
+                    keycloak_image=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".identityKeycloak.image.repository // empty")
                 fi
 
                 if [[ -z "$keycloak_image" || "$keycloak_image" == "null" ]]; then
