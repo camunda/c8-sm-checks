@@ -183,12 +183,27 @@ if [ "$API_PROTOCOL" = "grpc" ]; then
     download_zeebe_protofile(){
         echo "[INFO] Downloading gateway.proto for zeebe=${ZEEBE_VERSION}..."
 
+        local stable_url="https://raw.githubusercontent.com/camunda/camunda/refs/heads/stable/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto"
+        local main_url="https://raw.githubusercontent.com/camunda/camunda/refs/heads/main/zeebe/gateway-protocol/src/main/proto/gateway.proto"
+
         local curl_download_command
-        curl_download_command="curl -f \"https://raw.githubusercontent.com/camunda/camunda/refs/heads/stable/${ZEEBE_VERSION}/zeebe/gateway-protocol/src/main/proto/gateway.proto\" -o \"$PROTO_FILE\""
+        curl_download_command="curl -f \"${stable_url}\" -o \"$PROTO_FILE\""
         echo "[INFO] Running command: ${curl_download_command}"
 
         if eval "${curl_download_command}"; then
             echo "[INFO] Successfuly downloaded proto file for Zeebe=${ZEEBE_VERSION}"
+            return
+        fi
+
+        # Fallback to main: stable/<version> may not exist yet for unreleased
+        # versions (e.g. development against the next minor before its branch
+        # cut), in which case the proto file is only available on main.
+        echo "[WARN] stable/${ZEEBE_VERSION} branch not available, falling back to main"
+        curl_download_command="curl -f \"${main_url}\" -o \"$PROTO_FILE\""
+        echo "[INFO] Running command: ${curl_download_command}"
+
+        if eval "${curl_download_command}"; then
+            echo "[INFO] Successfuly downloaded proto file for Zeebe=${ZEEBE_VERSION} from main"
         else
             echo "[FAIL] Failed to downloaded proto file for Zeebe=${ZEEBE_VERSION}" 1>&2
             SCRIPT_STATUS_OUTPUT=3
