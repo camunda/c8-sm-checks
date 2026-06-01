@@ -1140,16 +1140,21 @@ check_irsa_aurora_requirements() {
                     fi
                 fi
 
-                web_modeler_username=$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_db_path}.${web_modeler_username_key} // empty")
+                # Resolve the value tolerantly: during the `user` -> `username`
+                # deprecation window both keys are valid and the chart still
+                # consumes the deprecated `user` when `username` is unset. Accept
+                # whichever key the user actually provided (preferred key first,
+                # then the deprecated alias) from values, then defaults.
+                web_modeler_username=$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_db_path}.username // .${wm_db_path}.user // empty")
                 if [[ -z "$web_modeler_username" || "$web_modeler_username" == "null" ]]; then
-                    web_modeler_username=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_db_path}.${web_modeler_username_key} // empty")
+                    web_modeler_username=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_db_path}.username // .${wm_db_path}.user // empty")
                 fi
 
                 if [[ -z "$web_modeler_username" || "$web_modeler_username" == "null" ]]; then
-                    echo "[FAIL] $wm_db_path.${web_modeler_username_key} is not defined in your helm values or defaults." 1>&2
+                    echo "[FAIL] $wm_db_path.${web_modeler_username_key} (or its deprecated alias) is not defined in your helm values or defaults." 1>&2
                     SCRIPT_STATUS_OUTPUT=96
                 else
-                    echo "[OK] $wm_db_path.${web_modeler_username_key} is correctly set: $web_modeler_username"
+                    echo "[OK] $wm_db_path username is correctly set: $web_modeler_username"
                 fi
 
                 check_aurora_cluster "$web_modeler_db_host" "$web_modeler_db_port" "$component"
