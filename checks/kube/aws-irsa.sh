@@ -1082,11 +1082,22 @@ check_irsa_aurora_requirements() {
                 wm_std_path="${component}.restapi.externalDatabase"
                 wm_hub_path="camundaHub.${component}.restapi.externalDatabase"
 
+                # Only chart 8.10+ defines the `camundaHub.*` subtree in its
+                # defaults. Gate the higher-priority camundaHub lookups on that
+                # so older charts (8.7-8.9) don't accept a `camundaHub.*` key the
+                # deployed chart silently ignores (false positive).
+                wm_hub_supported=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r "((.${wm_hub_path}) != null)")
+                if [[ "$wm_hub_supported" == "true" ]]; then
+                    wm_url_filter=".${wm_hub_path}.url // .${wm_std_path}.url"
+                else
+                    wm_url_filter=".${wm_std_path}.url"
+                fi
+
                 # Check if the externalDatabase.url is defined (camundaHub path
-                # first, then the standard path), with fallback to defaults.
-                web_modeler_url=$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_hub_path}.url // .${wm_std_path}.url // empty")
+                # first when supported, then the standard path), with fallback to defaults.
+                web_modeler_url=$(echo "$HELM_CHART_VALUES" | jq -r "${wm_url_filter} // empty")
                 if [[ -z "$web_modeler_url" || "$web_modeler_url" == "null" ]]; then
-                    web_modeler_url=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_hub_path}.url // .${wm_std_path}.url // empty")
+                    web_modeler_url=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r "${wm_url_filter} // empty")
                 fi
 
                 web_modeler_db_host=""
@@ -1126,8 +1137,8 @@ check_irsa_aurora_requirements() {
                 # deprecated `user`) and a false positive (accepting a key the
                 # chart ignores). Chart 8.10+ also accepts a higher-priority
                 # `camundaHub.*.username` path, which is tried first below.
-                wm_username_in_defaults=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_std_path} | has(\"username\")")
-                wm_user_in_defaults=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r ".${wm_std_path} | has(\"user\")")
+                wm_username_in_defaults=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r "(.${wm_std_path} // {}) | has(\"username\")")
+                wm_user_in_defaults=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r "(.${wm_std_path} // {}) | has(\"user\")")
 
                 if [[ "$wm_username_in_defaults" == "true" && "$wm_user_in_defaults" == "true" ]]; then
                     wm_username_std_filter=".${wm_std_path}.username // .${wm_std_path}.user"
@@ -1145,16 +1156,21 @@ check_irsa_aurora_requirements() {
                 fi
 
                 # The camundaHub path (8.10+) only uses the `username` key and
-                # takes precedence over the standard path.
-                wm_username_filter=".${wm_hub_path}.username // ${wm_username_std_filter}"
+                # takes precedence over the standard path, when the deployed
+                # chart actually defines the camundaHub subtree.
+                if [[ "$wm_hub_supported" == "true" ]]; then
+                    wm_username_filter=".${wm_hub_path}.username // ${wm_username_std_filter}"
+                else
+                    wm_username_filter="${wm_username_std_filter}"
+                fi
 
                 # Warn if the user supplied a key the deployed chart does not consume.
                 if [[ "$wm_username_in_defaults" == "true" && "$wm_user_in_defaults" != "true" ]]; then
-                    if [[ "$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_std_path} | has(\"user\")")" == "true" ]]; then
+                    if [[ "$(echo "$HELM_CHART_VALUES" | jq -r "(.${wm_std_path} // {}) | has(\"user\")")" == "true" ]]; then
                         echo "[WARN] $wm_std_path.user is set in your values but the deployed chart only consumes .username; the value will be ignored." 1>&2
                     fi
                 elif [[ "$wm_user_in_defaults" == "true" && "$wm_username_in_defaults" != "true" ]]; then
-                    if [[ "$(echo "$HELM_CHART_VALUES" | jq -r ".${wm_std_path} | has(\"username\")")" == "true" ]]; then
+                    if [[ "$(echo "$HELM_CHART_VALUES" | jq -r "(.${wm_std_path} // {}) | has(\"username\")")" == "true" ]]; then
                         echo "[WARN] $wm_std_path.username is set in your values but the deployed chart only consumes .user; the value will be ignored." 1>&2
                     fi
                 fi
@@ -1167,10 +1183,10 @@ check_irsa_aurora_requirements() {
                 fi
 
                 if [[ -z "$web_modeler_username" || "$web_modeler_username" == "null" ]]; then
-                    echo "[FAIL] $wm_std_path username is not defined in your helm values or defaults (the deployed chart consumes ${wm_accepted_keys_desc})." 1>&2
+                    echo "[FAIL] $wm_std_path.username is not defined in your helm values or defaults (the deployed chart consumes ${wm_accepted_keys_desc})." 1>&2
                     SCRIPT_STATUS_OUTPUT=96
                 else
-                    echo "[OK] $wm_std_path username is correctly set: $web_modeler_username"
+                    echo "[OK] $wm_std_path.username is correctly set: $web_modeler_username"
                 fi
 
                 check_aurora_cluster "$web_modeler_db_host" "$web_modeler_db_port" "$component"
