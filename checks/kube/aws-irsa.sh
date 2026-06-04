@@ -365,6 +365,33 @@ get_helm_chart_default_values() {
 }
 get_helm_chart_default_values
 
+# Detect whether Keycloak is managed by the Keycloak Operator (external) or by
+# the bundled identityKeycloak subchart (internal).
+#
+# `global.identity.keycloak.internal: false` signals an external, operator-
+# managed Keycloak. In that mode the identityKeycloak subchart is NOT deployed:
+# it has no externalDatabase configuration, no IRSA service account
+# (camunda-identityKeycloak) and no KEYCLOAK_* IRSA env vars. The operator
+# manages its own database connection (e.g. via CloudNativePG), so the
+# subchart-based Aurora/IRSA checks do not apply and must be skipped to keep the
+# verification backward compatible with both deployment styles.
+KEYCLOAK_OPERATOR_MANAGED=false
+detect_keycloak_management_mode() {
+    # Read from the deployed values first, fall back to the chart defaults.
+    keycloak_internal=$(echo "$HELM_CHART_VALUES" | jq -r '.global.identity.keycloak.internal // empty')
+    if [[ -z "$keycloak_internal" || "$keycloak_internal" == "null" ]]; then
+        keycloak_internal=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.identity.keycloak.internal // empty')
+    fi
+
+    if [[ "$keycloak_internal" == "false" ]]; then
+        KEYCLOAK_OPERATOR_MANAGED=true
+        echo "[INFO] Detected external (operator-managed) Keycloak (global.identity.keycloak.internal=false). The bundled identityKeycloak subchart IRSA checks will be skipped; the external Keycloak will be verified instead."
+    else
+        echo "[INFO] Detected internal Keycloak managed by the identityKeycloak subchart (global.identity.keycloak.internal=${keycloak_internal:-<unset, default applies>}). Standard IRSA checks apply for identityKeycloak."
+    fi
+}
+detect_keycloak_management_mode
+
 check_eks_cluster() {
     # Get the Kubernetes control plane URL
     cluster_info=$(kubectl cluster-info)
@@ -473,6 +500,14 @@ get_service_account_name() {
 
         if [[ -n "$EXCLUDE_PATTERN" && $component =~ $EXCLUDE_PATTERN ]]; then
             echo "[INFO] Skipping excluded component: $component"
+            continue
+        fi
+
+        # When Keycloak is operator-managed, the identityKeycloak subchart (and
+        # its camunda-identityKeycloak service account) is not deployed; skip it
+        # to avoid verifying a service account that does not exist.
+        if [[ "$component" == "identityKeycloak" && "$KEYCLOAK_OPERATOR_MANAGED" == "true" ]]; then
+            echo "[INFO] Skipping identityKeycloak service account mapping: Keycloak is operator-managed (external)."
             continue
         fi
 
@@ -819,6 +854,51 @@ check_aurora_cluster() {
     fi
 }
 
+# Verify an external, operator-managed Keycloak instead of the subchart-based
+# IRSA checks. This confirms the chart is pointed at an external Keycloak and
+# that this Keycloak is reachable. It is used when
+# global.identity.keycloak.internal=false (Keycloak Operator deployment).
+verify_external_keycloak() {
+    keycloak_host=$(echo "$HELM_CHART_VALUES" | jq -r '.global.identity.keycloak.url.host // empty')
+    if [[ -z "$keycloak_host" || "$keycloak_host" == "null" ]]; then
+        keycloak_host=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.identity.keycloak.url.host // empty')
+    fi
+
+    keycloak_port=$(echo "$HELM_CHART_VALUES" | jq -r '.global.identity.keycloak.url.port // empty')
+    if [[ -z "$keycloak_port" || "$keycloak_port" == "null" ]]; then
+        keycloak_port=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.identity.keycloak.url.port // empty')
+    fi
+    if [[ -z "$keycloak_port" || "$keycloak_port" == "null" ]]; then
+        keycloak_port=80
+    fi
+
+    if [[ -z "$keycloak_host" || "$keycloak_host" == "null" ]]; then
+        echo "[FAIL] External Keycloak is enabled (global.identity.keycloak.internal=false) but global.identity.keycloak.url.host is not set; the chart cannot reach Keycloak." 1>&2
+        SCRIPT_STATUS_OUTPUT=86
+        return
+    fi
+    echo "[OK] External Keycloak is configured at host=$keycloak_host port=$keycloak_port (operator-managed)."
+
+    # Confirm the Keycloak service the chart points to exists in the namespace.
+    # When Keycloak runs in another namespace or behind an external URL this is
+    # non-fatal, hence a warning rather than a failure.
+    keycloak_svc_cmd="kubectl get service \"$keycloak_host\" -n \"$NAMESPACE\" -o name"
+    echo "[INFO] Running command: $keycloak_svc_cmd"
+    if keycloak_svc_output=$(eval "$keycloak_svc_cmd" 2>&1); then
+        echo "[OK] External Keycloak service '$keycloak_host' found in namespace $NAMESPACE: $keycloak_svc_output"
+    else
+        echo "[WARNING] External Keycloak service '$keycloak_host' not found in namespace $NAMESPACE. If Keycloak runs in another namespace or behind an external URL this can be ignored: $keycloak_svc_output" 1>&2
+    fi
+
+    # Optionally verify network connectivity to the external Keycloak service.
+    if $SPAWN_POD; then
+        echo "[INFO] Network flow verification for external Keycloak with spawn of pods is enabled (use the -s flag if you want to disable it)."
+        check_connectivity_with_nmap "identityKeycloak" "$keycloak_host" "$keycloak_port"
+    else
+        echo "[INFO] Network flow verification for external Keycloak with spawn of pods is disabled (-s flag). No pods will be spawned for the external Keycloak verification."
+    fi
+}
+
 check_irsa_aurora_requirements() {
     # Filter and loop over components to check while excluding the excluded ones
     for component in $(echo "$COMPONENTS_TO_CHECK_IRSA_PG" | tr ',' ' '); do
@@ -840,6 +920,18 @@ check_irsa_aurora_requirements() {
 
         case "$component" in
             "identityKeycloak")
+                # When Keycloak is operator-managed (external), the
+                # identityKeycloak subchart is not deployed: there is no
+                # externalDatabase configuration, no camunda/keycloak image and
+                # no KEYCLOAK_* IRSA env vars to verify. The operator manages its
+                # own database connection, so verify the external Keycloak
+                # instead of running the subchart-based IRSA checks.
+                if [[ "$KEYCLOAK_OPERATOR_MANAGED" == "true" ]]; then
+                    echo "[INFO] identityKeycloak is operator-managed (global.identity.keycloak.internal=false); skipping subchart-based Aurora/IRSA checks and verifying the external Keycloak instead."
+                    verify_external_keycloak
+                    continue
+                fi
+
                 # Retrieve keycloak_enabled setting from HELM_CHART_VALUES, or fallback to HELM_CHART_DEFAULT_VALUES
                 keycloak_enabled=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.postgresql.enabled")
 
