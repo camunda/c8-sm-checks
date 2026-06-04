@@ -377,9 +377,10 @@ get_helm_chart_default_values
 # verification backward compatible with both deployment styles.
 KEYCLOAK_OPERATOR_MANAGED=false
 detect_keycloak_management_mode() {
+    local keycloak_internal
     # Read from the deployed values first, fall back to the chart defaults.
     keycloak_internal=$(echo "$HELM_CHART_VALUES" | jq -r '.global.identity.keycloak.internal // empty')
-    if [[ -z "$keycloak_internal" || "$keycloak_internal" == "null" ]]; then
+    if [[ -z "$keycloak_internal" ]]; then
         keycloak_internal=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.identity.keycloak.internal // empty')
     fi
 
@@ -859,20 +860,22 @@ check_aurora_cluster() {
 # that this Keycloak is reachable. It is used when
 # global.identity.keycloak.internal=false (Keycloak Operator deployment).
 verify_external_keycloak() {
+    local keycloak_host keycloak_port keycloak_svc_output
+
     keycloak_host=$(echo "$HELM_CHART_VALUES" | jq -r '.global.identity.keycloak.url.host // empty')
-    if [[ -z "$keycloak_host" || "$keycloak_host" == "null" ]]; then
+    if [[ -z "$keycloak_host" ]]; then
         keycloak_host=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.identity.keycloak.url.host // empty')
     fi
 
     keycloak_port=$(echo "$HELM_CHART_VALUES" | jq -r '.global.identity.keycloak.url.port // empty')
-    if [[ -z "$keycloak_port" || "$keycloak_port" == "null" ]]; then
+    if [[ -z "$keycloak_port" ]]; then
         keycloak_port=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.identity.keycloak.url.port // empty')
     fi
-    if [[ -z "$keycloak_port" || "$keycloak_port" == "null" ]]; then
+    if [[ -z "$keycloak_port" ]]; then
         keycloak_port=80
     fi
 
-    if [[ -z "$keycloak_host" || "$keycloak_host" == "null" ]]; then
+    if [[ -z "$keycloak_host" ]]; then
         echo "[FAIL] External Keycloak is enabled (global.identity.keycloak.internal=false) but global.identity.keycloak.url.host is not set; the chart cannot reach Keycloak." 1>&2
         SCRIPT_STATUS_OUTPUT=86
         return
@@ -882,9 +885,8 @@ verify_external_keycloak() {
     # Confirm the Keycloak service the chart points to exists in the namespace.
     # When Keycloak runs in another namespace or behind an external URL this is
     # non-fatal, hence a warning rather than a failure.
-    keycloak_svc_cmd="kubectl get service \"$keycloak_host\" -n \"$NAMESPACE\" -o name"
-    echo "[INFO] Running command: $keycloak_svc_cmd"
-    if keycloak_svc_output=$(eval "$keycloak_svc_cmd" 2>&1); then
+    echo "[INFO] Running command: kubectl get service $keycloak_host -n $NAMESPACE -o name"
+    if keycloak_svc_output=$(kubectl get service "$keycloak_host" -n "$NAMESPACE" -o name 2>&1); then
         echo "[OK] External Keycloak service '$keycloak_host' found in namespace $NAMESPACE: $keycloak_svc_output"
     else
         echo "[WARNING] External Keycloak service '$keycloak_host' not found in namespace $NAMESPACE. If Keycloak runs in another namespace or behind an external URL this can be ignored: $keycloak_svc_output" 1>&2
