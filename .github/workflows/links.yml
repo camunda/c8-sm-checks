@@ -10,10 +10,22 @@ on:
         paths:
             - .github/workflows/links.yml
 
+# The repository default is `default_workflow_permissions: write`, so without this block the job
+# below runs with a read/write GITHUB_TOKEN. The link check itself only reads; the scheduled
+# failure path needs more and escalates on the job.
+permissions:
+    contents: read
+
 jobs:
     lint:
         name: links-check
         runs-on: ubuntu-latest
+        # `issues: write` is for the scheduled failure path only: `create-issue-from-file` opens
+        # the "Link Checker Report" issue, and `report-failure-on-slack` reads the
+        # `silence: <workflow>` issues to decide whether the alert is muted.
+        permissions:
+            contents: read
+            issues: write
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
               with:
