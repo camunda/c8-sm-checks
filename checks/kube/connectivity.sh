@@ -68,7 +68,8 @@ check_services_resolution() {
     local services
     local services_command
     # we only take the first port as we only want to check service name resolution and nothing else
-    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.ports[0].port}{\"\n\"}{end}'"
+    # clusterIP is carried along so headless services can be skipped below
+    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.ports[0].port}:{.spec.clusterIP}{\"\n\"}{end}'"
     echo "[INFO] Running command: ${services_command}"
     services=$(eval "${services_command}")
 
@@ -86,8 +87,23 @@ check_services_resolution() {
         fi
 
         for service in $services; do
-            local service_name="${service%:*}"
-            local service_port="${service#*:}"
+            local service_cluster_ip="${service##*:}"
+            local service_without_ip="${service%:*}"
+            local service_name="${service_without_ip%:*}"
+            local service_port="${service_without_ip##*:}"
+
+            # Headless services (clusterIP None) publish the pod IPs of their
+            # ready endpoints instead of a virtual IP, so their DNS name has no
+            # A record at all while the backing workload has no ready pod. A
+            # probe then fails with "Name or service not known", which reports a
+            # rollout in progress rather than a connectivity problem. Every
+            # workload that owns a headless service is also fronted by a regular
+            # service, so skipping these loses no coverage.
+            if [ "$service_cluster_ip" = "None" ]; then
+                echo "[INFO] Skipping headless service $service_name:$service_port (no cluster IP; resolution depends on ready endpoints)"
+                continue
+            fi
+
             echo "[INFO] Checking service $service_name:$service_port from pod $pod"
 
             local check_output
