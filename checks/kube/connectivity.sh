@@ -68,8 +68,9 @@ check_services_resolution() {
     local services
     local services_command
     # we only take the first port as we only want to check service name resolution and nothing else
-    # clusterIP is carried along so headless services can be skipped below
-    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.ports[0].port}:{.spec.clusterIP}{\"\n\"}{end}'"
+    # clusterIP comes first so headless services can be skipped below; it is emitted
+    # first on purpose, see the right-to-left parsing in the loop
+    services_command="kubectl get services -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{.spec.clusterIP}:{.metadata.name}:{.spec.ports[0].port}{\"\n\"}{end}'"
     echo "[INFO] Running command: ${services_command}"
     services=$(eval "${services_command}")
 
@@ -87,10 +88,14 @@ check_services_resolution() {
         fi
 
         for service in $services; do
-            local service_cluster_ip="${service##*:}"
-            local service_without_ip="${service%:*}"
-            local service_name="${service_without_ip%:*}"
-            local service_port="${service_without_ip##*:}"
+            # Parsed right to left: a service name and a port never contain a
+            # colon, so whatever remains on the left is the cluster IP, colons
+            # included. That keeps IPv6 and dual-stack clusters working, where
+            # clusterIP looks like fd00:10:96::1.
+            local service_port="${service##*:}"
+            local service_rest="${service%:*}"
+            local service_name="${service_rest##*:}"
+            local service_cluster_ip="${service_rest%:*}"
 
             # Headless services (clusterIP None) publish the pod IPs of their
             # ready endpoints instead of a virtual IP, so their DNS name has no
