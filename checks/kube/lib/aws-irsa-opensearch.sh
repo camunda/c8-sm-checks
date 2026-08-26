@@ -1,0 +1,159 @@
+# shellcheck shell=bash
+#
+# Resolution of the OpenSearch IRSA prerequisites from the deployed Helm values.
+#
+# Sourced by checks/kube/aws-irsa.sh. It lives in its own file so the value
+# resolution can be exercised without a cluster; see
+# test/kube/aws-irsa-opensearch.test.sh.
+
+# jq port of the chart's `orchestration.secondaryStorage` helper. The explicit
+# `type` wins outright; only when it is empty does the chart derive the storage
+# from the exporter flags and from the (deprecated) global tree.
+CAMUNDA_ORCHESTRATION_STORAGE_TYPE_JQ='
+def orchestration_storage_type:
+  if ((.orchestration.data.secondaryStorage.type // "") != "") then
+    .orchestration.data.secondaryStorage.type
+  elif (.global.noSecondaryStorage // false) then
+    "none"
+  elif (.orchestration.exporters.rdbms.enabled // false) then
+    "rdbms"
+  elif ((.global.elasticsearch.enabled // false) or (.optimize.database.elasticsearch.enabled // false)) then
+    "elasticsearch"
+  elif ((.global.opensearch.enabled // false) or (.optimize.database.opensearch.enabled // false)) then
+    "opensearch"
+  else
+    "unset"
+  end;
+'
+
+# Coalesce the chart defaults with the deployed values into a single document
+# holding the effective configuration. jq's `*` merges objects recursively with
+# the right-hand side winning, which is how Helm layers user values over the
+# chart defaults.
+#
+# $1: chart default values (JSON)
+# $2: deployed Helm values (JSON)
+camunda_effective_values() {
+    local defaults="$1" values="$2"
+
+    if [[ -z "$defaults" || "$defaults" == "null" ]]; then
+        defaults='{}'
+    fi
+    if [[ -z "$values" || "$values" == "null" ]]; then
+        values='{}'
+    fi
+
+    jq -n --argjson defaults "$defaults" --argjson values "$values" '$defaults * $values'
+}
+
+# Whether the deployed chart still defines the deprecated global database value
+# trees. Chart 15.x deletes `global.elasticsearch` and `global.opensearch` in
+# favour of the component-scoped values. This is read from the chart's own
+# defaults rather than from its version number, so the check follows the chart
+# through the deprecation window instead of needing a bump on the removal
+# release.
+#
+# $1: effective values (JSON)
+camunda_chart_supports_global_database_values() {
+    [[ "$(jq -r '((.global.opensearch != null) or (.global.elasticsearch != null))' <<< "$1")" == "true" ]]
+}
+
+# Verify that every component checked for OpenSearch IRSA is actually backed by
+# OpenSearch and configured for AWS authentication. Both the component-scoped
+# values and the deprecated global ones are honoured, with the same precedence
+# as the chart helpers (`orchestration.secondaryStorage`,
+# `optimize.effectiveOsAwsEnabled`).
+#
+# $1: comma-separated list of components to check
+# $2: chart default values (JSON)
+# $3: deployed Helm values (JSON)
+#
+# Returns non-zero when at least one prerequisite is not met.
+check_irsa_opensearch_requirements() {
+    local components="$1" defaults="$2" values="$3"
+    local merged global_supported failed=0
+    local component component_failed enable_value aws_value
+    local storage_type os_enabled es_enabled aws_enabled
+    local os_component_list=()
+
+    if ! merged=$(camunda_effective_values "$defaults" "$values"); then
+        echo "[FAIL] Unable to merge the chart default values with the deployed Helm values." 1>&2
+        return 1
+    fi
+
+    if camunda_chart_supports_global_database_values "$merged"; then
+        global_supported=true
+        echo "[INFO] The deployed chart still defines the deprecated global.elasticsearch/global.opensearch values; they are accepted as a fallback for the component-scoped ones."
+    else
+        global_supported=false
+        echo "[INFO] The deployed chart does not define the global.elasticsearch/global.opensearch values (removed in chart 15.x); only the component-scoped values are read."
+    fi
+
+    IFS=',' read -r -a os_component_list <<< "$components"
+    for component in "${os_component_list[@]}"; do
+        if [[ -z "$component" ]]; then
+            continue
+        fi
+
+        case "$component" in
+            orchestration)
+                storage_type=$(jq -r "${CAMUNDA_ORCHESTRATION_STORAGE_TYPE_JQ} orchestration_storage_type" <<< "$merged")
+                echo "[INFO] (component=$component) Resolved secondary storage type: $storage_type"
+
+                if [[ "$storage_type" == "opensearch" ]]; then
+                    os_enabled=true
+                else
+                    os_enabled=false
+                fi
+                if [[ "$storage_type" == "elasticsearch" ]]; then
+                    es_enabled=true
+                else
+                    es_enabled=false
+                fi
+
+                aws_enabled=$(jq -r '((.orchestration.data.secondaryStorage.opensearch.aws.enabled // false) or (.global.opensearch.aws.enabled // false))' <<< "$merged")
+                enable_value='orchestration.data.secondaryStorage.type to "opensearch"'
+                aws_value="orchestration.data.secondaryStorage.opensearch.aws.enabled to true"
+                ;;
+            optimize)
+                os_enabled=$(jq -r '((.optimize.database.opensearch.enabled // false) or (.global.opensearch.enabled // false))' <<< "$merged")
+                es_enabled=$(jq -r '((.optimize.database.elasticsearch.enabled // false) or (.global.elasticsearch.enabled // false))' <<< "$merged")
+                aws_enabled=$(jq -r '((.optimize.database.opensearch.aws.enabled // false) or (.global.opensearch.aws.enabled // false))' <<< "$merged")
+                enable_value="optimize.database.opensearch.enabled to true"
+                aws_value="optimize.database.opensearch.aws.enabled to true"
+                ;;
+            *)
+                echo "[INFO] (component=$component) No OpenSearch prerequisites are defined for this component, skipping."
+                continue
+                ;;
+        esac
+
+        if [[ "$global_supported" == "true" ]]; then
+            enable_value="$enable_value (or the deprecated global.opensearch.enabled to true)"
+            aws_value="$aws_value (or the deprecated global.opensearch.aws.enabled to true)"
+        fi
+
+        component_failed=0
+
+        if [[ "$es_enabled" == "true" ]]; then
+            echo "[FAIL] (component=$component) IRSA is only supported for OpenSearch, but the deployed values select Elasticsearch. Set $enable_value." 1>&2
+            component_failed=1
+        elif [[ "$os_enabled" != "true" ]]; then
+            echo "[FAIL] (component=$component) OpenSearch must be enabled for IRSA to work. Set $enable_value." 1>&2
+            component_failed=1
+        fi
+
+        if [[ "$aws_enabled" != "true" ]]; then
+            echo "[FAIL] (component=$component) OpenSearch AWS integration must be enabled. Set $aws_value." 1>&2
+            component_failed=1
+        fi
+
+        if [[ "$component_failed" -eq 0 ]]; then
+            echo "[OK] (component=$component) OpenSearch is correctly configured for IRSA support."
+        else
+            failed=1
+        fi
+    done
+
+    return "$failed"
+}
