@@ -10,7 +10,10 @@ LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # shellcheck source=checks/kube/lib/aws-irsa-opensearch.sh
 # shellcheck source-path=SCRIPTDIR
-source "$DIR_NAME/lib/aws-irsa-opensearch.sh"
+source "$DIR_NAME/lib/aws-irsa-opensearch.sh" || {
+    echo 1>&2 "Error: unable to load $DIR_NAME/lib/aws-irsa-opensearch.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
+    exit 1
+}
 
 # Default variables
 NAMESPACE="${NAMESPACE:-""}"

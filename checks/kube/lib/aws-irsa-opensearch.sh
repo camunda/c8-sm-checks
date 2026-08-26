@@ -26,38 +26,6 @@ def orchestration_storage_type:
   end;
 '
 
-# Coalesce the chart defaults with the deployed values into a single document
-# holding the effective configuration. jq's `*` merges objects recursively with
-# the right-hand side winning, which is how Helm layers user values over the
-# chart defaults.
-#
-# $1: chart default values (JSON)
-# $2: deployed Helm values (JSON)
-camunda_effective_values() {
-    local defaults="$1" values="$2"
-
-    if [[ -z "$defaults" || "$defaults" == "null" ]]; then
-        defaults='{}'
-    fi
-    if [[ -z "$values" || "$values" == "null" ]]; then
-        values='{}'
-    fi
-
-    jq -n --argjson defaults "$defaults" --argjson values "$values" '$defaults * $values'
-}
-
-# Whether the deployed chart still defines the deprecated global database value
-# trees. Chart 15.x deletes `global.elasticsearch` and `global.opensearch` in
-# favour of the component-scoped values. This is read from the chart's own
-# defaults rather than from its version number, so the check follows the chart
-# through the deprecation window instead of needing a bump on the removal
-# release.
-#
-# $1: effective values (JSON)
-camunda_chart_supports_global_database_values() {
-    [[ "$(jq -r '((.global.opensearch != null) or (.global.elasticsearch != null))' <<< "$1")" == "true" ]]
-}
-
 # Verify that every component checked for OpenSearch IRSA is actually backed by
 # OpenSearch and configured for AWS authentication. Both the component-scoped
 # values and the deprecated global ones are honoured, with the same precedence
@@ -76,12 +44,28 @@ check_irsa_opensearch_requirements() {
     local storage_type os_enabled es_enabled aws_enabled
     local os_component_list=()
 
-    if ! merged=$(camunda_effective_values "$defaults" "$values"); then
+    if [[ -z "$defaults" || "$defaults" == "null" ]]; then
+        defaults='{}'
+    fi
+    if [[ -z "$values" || "$values" == "null" ]]; then
+        values='{}'
+    fi
+
+    # Coalesce the chart defaults with the deployed values into a single
+    # document holding the effective configuration. jq's `*` merges objects
+    # recursively with the right-hand side winning, which is how Helm layers
+    # user values over the chart defaults.
+    if ! merged=$(jq -n --argjson defaults "$defaults" --argjson values "$values" '$defaults * $values'); then
         echo "[FAIL] Unable to merge the chart default values with the deployed Helm values." 1>&2
         return 1
     fi
 
-    if camunda_chart_supports_global_database_values "$merged"; then
+    # Chart 15.x deletes `global.elasticsearch` and `global.opensearch` in
+    # favour of the component-scoped values. Whether they are still supported is
+    # read from the deployed chart's own defaults rather than from its version
+    # number, so the check follows the chart through the deprecation window
+    # instead of needing a bump on the removal release.
+    if [[ "$(jq -r '((.global.opensearch != null) or (.global.elasticsearch != null))' <<< "$merged")" == "true" ]]; then
         global_supported=true
         echo "[INFO] The deployed chart still defines the deprecated global.elasticsearch/global.opensearch values; they are accepted as a fallback for the component-scoped ones."
     else
@@ -90,6 +74,11 @@ check_irsa_opensearch_requirements() {
     fi
 
     IFS=',' read -r -a os_component_list <<< "$components"
+    if [[ "${#os_component_list[@]}" -eq 0 ]]; then
+        echo "[INFO] No component is being checked for OpenSearch IRSA; skipping the OpenSearch prerequisites."
+        return 0
+    fi
+
     for component in "${os_component_list[@]}"; do
         if [[ -z "$component" ]]; then
             continue

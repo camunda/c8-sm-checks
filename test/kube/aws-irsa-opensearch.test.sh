@@ -184,6 +184,7 @@ run_case "an unknown component is skipped" \
 
 run_case "an empty component list verifies nothing" \
     "" "$CHART_15_DEFAULTS" '{}' 0 \
+    "[INFO] No component is being checked for OpenSearch IRSA" \
     "!component="
 
 # --- Value coalescing ---------------------------------------------------------
