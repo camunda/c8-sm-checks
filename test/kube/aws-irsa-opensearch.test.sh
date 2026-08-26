@@ -168,6 +168,15 @@ run_case "chart 15: no database configured is rejected" \
     "[FAIL] (component=orchestration) OpenSearch must be enabled" \
     "[FAIL] (component=optimize) OpenSearch must be enabled"
 
+run_case "chart 15: global values the chart no longer consumes do not satisfy the check" \
+    "orchestration,optimize" "$CHART_15_DEFAULTS" \
+    '{"global": {"opensearch": {"enabled": true, "aws": {"enabled": true}}}}' \
+    1 \
+    "[WARN] global.elasticsearch/global.opensearch are set in your values but the deployed chart no longer consumes them" \
+    "[FAIL] (component=orchestration) OpenSearch must be enabled" \
+    "[FAIL] (component=optimize) OpenSearch must be enabled" \
+    "[FAIL] (component=optimize) OpenSearch AWS integration must be enabled"
+
 # --- Component selection ------------------------------------------------------
 
 run_case "only the requested components are verified" \

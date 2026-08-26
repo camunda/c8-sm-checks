@@ -65,12 +65,20 @@ check_irsa_opensearch_requirements() {
     # read from the deployed chart's own defaults rather than from its version
     # number, so the check follows the chart through the deprecation window
     # instead of needing a bump on the removal release.
-    if [[ "$(jq -r '((.global.opensearch != null) or (.global.elasticsearch != null))' <<< "$merged")" == "true" ]]; then
+    if [[ "$(jq -r '((.global.opensearch != null) or (.global.elasticsearch != null))' <<< "$defaults")" == "true" ]]; then
         global_supported=true
         echo "[INFO] The deployed chart still defines the deprecated global.elasticsearch/global.opensearch values; they are accepted as a fallback for the component-scoped ones."
     else
         global_supported=false
         echo "[INFO] The deployed chart does not define the global.elasticsearch/global.opensearch values (removed in chart 15.x); only the component-scoped values are read."
+
+        # The deployed chart ignores these keys, so leaving them in the
+        # effective values would let a stale global.opensearch.enabled satisfy a
+        # check the chart itself would not honour (false positive).
+        if [[ "$(jq -r '((.global.opensearch != null) or (.global.elasticsearch != null))' <<< "$merged")" == "true" ]]; then
+            echo "[WARN] global.elasticsearch/global.opensearch are set in your values but the deployed chart no longer consumes them; they are ignored." 1>&2
+            merged=$(jq 'del(.global.elasticsearch, .global.opensearch)' <<< "$merged")
+        fi
     fi
 
     IFS=',' read -r -a os_component_list <<< "$components"
