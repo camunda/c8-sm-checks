@@ -43,23 +43,21 @@ def optimize_storage_type:
 # effective values to spot keys the chart would silently ignore.
 CAMUNDA_HAS_GLOBAL_DATABASE_VALUES_JQ='((.global.opensearch != null) or (.global.elasticsearch != null))'
 
-# Verify that every component checked for OpenSearch IRSA is actually backed by
-# OpenSearch and configured for AWS authentication. Both the component-scoped
-# values and the deprecated global ones are honoured, with the same precedence
-# as the chart helpers (`orchestration.secondaryStorage`,
-# `optimize.effectiveOsAwsEnabled`).
+# Resolve, once per run, the configuration every OpenSearch check reads. Both
+# checks take the result as an argument, so they cannot disagree on which
+# database the deployment uses.
 #
-# $1: comma-separated list of components to check
-# $2: chart default values (JSON)
-# $3: deployed Helm values (JSON)
+# $1: chart default values (JSON)
+# $2: deployed Helm values (JSON)
 #
-# Returns non-zero when at least one prerequisite is not met.
-check_irsa_opensearch_requirements() {
-    local components="$1" defaults="$2" values="$3"
-    local merged global_supported failed=0
-    local component component_failed enable_value aws_value
-    local storage_type aws_enabled
-    local os_component_list=()
+# Sets CAMUNDA_EFFECTIVE_VALUES and CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED.
+CAMUNDA_EFFECTIVE_VALUES=""
+CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED=false
+# CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED is an output of this library: it is
+# read by checks/kube/aws-irsa.sh and by the tests, never within this file.
+# shellcheck disable=SC2034
+camunda_resolve_effective_values() {
+    local defaults="$1" values="$2"
 
     if [[ -z "$defaults" || "$defaults" == "null" ]]; then
         defaults='{}'
@@ -72,7 +70,7 @@ check_irsa_opensearch_requirements() {
     # document holding the effective configuration. jq's `*` merges objects
     # recursively with the right-hand side winning, which is how Helm layers
     # user values over the chart defaults.
-    if ! merged=$(jq -n --argjson defaults "$defaults" --argjson values "$values" '$defaults * $values'); then
+    if ! CAMUNDA_EFFECTIVE_VALUES=$(jq -n --argjson defaults "$defaults" --argjson values "$values" '$defaults * $values'); then
         echo "[FAIL] Unable to merge the chart default values with the deployed Helm values." 1>&2
         return 1
     fi
@@ -83,20 +81,67 @@ check_irsa_opensearch_requirements() {
     # number, so the check follows the chart through the deprecation window
     # instead of needing a bump on the removal release.
     if [[ "$(jq -r "$CAMUNDA_HAS_GLOBAL_DATABASE_VALUES_JQ" <<< "$defaults")" == "true" ]]; then
-        global_supported=true
+        CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED=true
         echo "[INFO] The deployed chart still defines the deprecated global.elasticsearch/global.opensearch values; they are accepted as a fallback for the component-scoped ones."
-    else
-        global_supported=false
-        echo "[INFO] The deployed chart does not define the global.elasticsearch/global.opensearch values (removed in chart 15.x); only the component-scoped values are read."
-
-        # The deployed chart ignores these keys, so leaving them in the
-        # effective values would let a stale global.opensearch.enabled satisfy a
-        # check the chart itself would not honour (false positive).
-        if [[ "$(jq -r "$CAMUNDA_HAS_GLOBAL_DATABASE_VALUES_JQ" <<< "$merged")" == "true" ]]; then
-            echo "[WARN] global.elasticsearch/global.opensearch are set in your values but the deployed chart no longer consumes them; they are ignored." 1>&2
-            merged=$(jq 'del(.global.elasticsearch, .global.opensearch)' <<< "$merged")
-        fi
+        return 0
     fi
+
+    CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED=false
+    echo "[INFO] The deployed chart does not define the global.elasticsearch/global.opensearch values (removed in chart 15.x); only the component-scoped values are read."
+
+    # The deployed chart ignores these keys, so leaving them in the effective
+    # values would let a stale global.opensearch.enabled satisfy a check the
+    # chart itself would not honour (false positive).
+    if [[ "$(jq -r "$CAMUNDA_HAS_GLOBAL_DATABASE_VALUES_JQ" <<< "$CAMUNDA_EFFECTIVE_VALUES")" == "true" ]]; then
+        echo "[WARN] global.elasticsearch/global.opensearch are set in your values but the deployed chart no longer consumes them; they are ignored." 1>&2
+        CAMUNDA_EFFECTIVE_VALUES=$(jq 'del(.global.elasticsearch, .global.opensearch)' <<< "$CAMUNDA_EFFECTIVE_VALUES")
+    fi
+}
+
+# Resolve the OpenSearch host the deployment talks to, with the chart's own
+# precedence: the component-scoped values first, the deprecated global tree only
+# as a fallback (`camundaPlatform.opensearchHost`). Orchestration carries a full
+# URL where Optimize and the global tree carry a bare host, so the scheme, path
+# and port are stripped uniformly.
+#
+# $1: effective values (JSON)
+camunda_opensearch_host() {
+    local merged="$1"
+
+    # The resolution can be skipped when the values failed to merge; report no
+    # host rather than letting jq fail on an empty document.
+    if [[ -z "$merged" || "$merged" == "null" ]]; then
+        return 0
+    fi
+
+    jq -r '
+      def host_of: sub("^[a-z]+://"; "") | sub("/.*$"; "") | sub(":[0-9]+$"; "");
+      [ .orchestration.data.secondaryStorage.opensearch.url,
+        .optimize.database.opensearch.url.host,
+        .global.opensearch.url.host ]
+      | map(select(type == "string" and . != ""))
+      | (first // "")
+      | host_of
+    ' <<< "$merged"
+}
+
+# Verify that every component checked for OpenSearch IRSA is actually backed by
+# OpenSearch and configured for AWS authentication. Both the component-scoped
+# values and the deprecated global ones are honoured, with the same precedence
+# as the chart helpers (`orchestration.secondaryStorage`,
+# `optimize.effectiveOsAwsEnabled`).
+#
+# $1: comma-separated list of components to check
+# $2: effective values (JSON), from camunda_resolve_effective_values
+# $3: whether the chart still supports the global database values
+#
+# Returns non-zero when at least one prerequisite is not met.
+check_irsa_opensearch_requirements() {
+    local components="$1" merged="$2" global_supported="$3"
+    local failed=0
+    local component component_failed enable_value aws_value
+    local storage_type aws_enabled
+    local os_component_list=()
 
     IFS=',' read -r -a os_component_list <<< "$components"
     if [[ "${#os_component_list[@]}" -eq 0 ]]; then

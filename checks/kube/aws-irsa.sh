@@ -646,23 +646,17 @@ EOF
 }
 
 check_opensearch_iam_enabled() {
-    opensearch_url=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.url.host')
+    # Resolved with the chart's precedence (component-scoped first, the
+    # deprecated global tree as a fallback) and from the same effective values as
+    # the prerequisites above, so both checks verify the same OpenSearch domain.
+    opensearch_url=$(camunda_opensearch_host "$CAMUNDA_EFFECTIVE_VALUES")
 
-    # Fallback to per-component paths (Camunda 8.8+: orchestration/optimize have their own opensearch config)
     if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        opensearch_url=$(echo "$HELM_CHART_VALUES" | jq -r '.optimize.database.opensearch.url.host // empty')
-    fi
-    if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        # orchestration stores the full URL, extract the host
-        local full_url
-        full_url=$(echo "$HELM_CHART_VALUES" | jq -r '.orchestration.data.secondaryStorage.opensearch.url // empty')
-        if [[ -n "$full_url" && "$full_url" != "null" ]]; then
-            opensearch_url=$(echo "$full_url" | sed -E 's|^https?://||' | sed -E 's|(/.*)||' | sed -E 's|:[0-9]+$||')
+        opensearch_url_hint="'.orchestration.data.secondaryStorage.opensearch.url' or '.optimize.database.opensearch.url.host'"
+        if [[ "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED" == "true" ]]; then
+            opensearch_url_hint="$opensearch_url_hint (or the deprecated '.global.opensearch.url.host')"
         fi
-    fi
-
-    if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        echo "[FAIL] The OpenSearch URL is not set. Please ensure that '.global.opensearch.url.host' or per-component opensearch URL is correctly specified in the Helm chart values." 1>&2
+        echo "[FAIL] The OpenSearch URL is not set. Please ensure that $opensearch_url_hint is correctly specified in the Helm chart values." 1>&2
         SCRIPT_STATUS_OUTPUT=61
         return
     fi
@@ -757,7 +751,9 @@ if [[ -n "$COMPONENTS_TO_CHECK_IRSA_OS" ]]; then
         # The OpenSearch prerequisites are per-component since chart 15.x, so
         # they are validated only for those.
         OS_COMPONENTS_TO_VERIFY=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r 'keys | join(",")')
-        if ! check_irsa_opensearch_requirements "$OS_COMPONENTS_TO_VERIFY" "$HELM_CHART_DEFAULT_VALUES" "$HELM_CHART_VALUES"; then
+        if ! camunda_resolve_effective_values "$HELM_CHART_DEFAULT_VALUES" "$HELM_CHART_VALUES"; then
+            SCRIPT_STATUS_OUTPUT=51
+        elif ! check_irsa_opensearch_requirements "$OS_COMPONENTS_TO_VERIFY" "$CAMUNDA_EFFECTIVE_VALUES" "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED"; then
             SCRIPT_STATUS_OUTPUT=51
         fi
         check_opensearch_iam_enabled

@@ -66,7 +66,8 @@ run_case() {
     local output status pattern
     local before="$FAILURES"
 
-    output=$(check_irsa_opensearch_requirements "$components" "$defaults" "$values" 2>&1)
+    output=$( { camunda_resolve_effective_values "$defaults" "$values" \
+        && check_irsa_opensearch_requirements "$components" "$CAMUNDA_EFFECTIVE_VALUES" "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED"; } 2>&1 )
     status=$?
 
     if [[ "$status" -ne "$expected_status" ]]; then
@@ -223,6 +224,67 @@ run_case "absent deployed values fall back to the chart defaults" \
     '{"optimize": {"database": {"opensearch": {"enabled": true, "aws": {"enabled": true}}}}}' \
     "" 0 \
     "[OK] (component=optimize)"
+
+# --- OpenSearch host resolution ----------------------------------------------
+#
+# The URL check must agree with the prerequisites above on which cluster is
+# being verified, so it resolves with the chart's own precedence
+# (`camundaPlatform.opensearchHost`): component-scoped first, global last.
+
+# assert_host <name> <defaults> <values> <expected host>
+assert_host() {
+    local name="$1" defaults="$2" values="$3" expected="$4" actual
+
+    camunda_resolve_effective_values "$defaults" "$values" >/dev/null 2>&1
+    actual=$(camunda_opensearch_host "$CAMUNDA_EFFECTIVE_VALUES")
+
+    if [[ "$actual" == "$expected" ]]; then
+        printf '[OK] %s\n' "$name"
+    else
+        printf '[FAIL] %s: expected host "%s", got "%s"\n' "$name" "$expected" "$actual"
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+
+assert_host "host: orchestration full URL is stripped to the host" \
+    "$CHART_15_DEFAULTS" \
+    '{"orchestration": {"data": {"secondaryStorage": {"opensearch": {"url": "https://vpc-os.eu-west-1.es.amazonaws.com:443/path"}}}}}' \
+    "vpc-os.eu-west-1.es.amazonaws.com"
+
+assert_host "host: optimize host is used when orchestration has none" \
+    "$CHART_15_DEFAULTS" \
+    '{"optimize": {"database": {"opensearch": {"url": {"host": "optimize-os.eu-west-1.es.amazonaws.com"}}}}}' \
+    "optimize-os.eu-west-1.es.amazonaws.com"
+
+assert_host "host: the component-scoped value wins over the deprecated global one" \
+    "$LEGACY_DEFAULTS" \
+    '{
+      "global": {"opensearch": {"url": {"host": "stale-global.eu-west-1.es.amazonaws.com"}}},
+      "optimize": {"database": {"opensearch": {"url": {"host": "real-component.eu-west-1.es.amazonaws.com"}}}}
+    }' \
+    "real-component.eu-west-1.es.amazonaws.com"
+
+assert_host "host: the deprecated global value is still a fallback on charts that define it" \
+    "$LEGACY_DEFAULTS" \
+    '{"global": {"opensearch": {"url": {"host": "legacy-global.eu-west-1.es.amazonaws.com"}}}}' \
+    "legacy-global.eu-west-1.es.amazonaws.com"
+
+assert_host "host: a global value the chart dropped is ignored" \
+    "$CHART_15_DEFAULTS" \
+    '{"global": {"opensearch": {"url": {"host": "stale-global.eu-west-1.es.amazonaws.com"}}}}' \
+    ""
+
+assert_host "host: nothing configured resolves to empty" \
+    "$CHART_15_DEFAULTS" '{}' ""
+
+# The URL check runs even when the merge failed; it must report no host instead
+# of tripping over an empty document.
+if [[ -n "$(camunda_opensearch_host "")" ]]; then
+    printf '[FAIL] host: an unresolved document should yield no host\n'
+    FAILURES=$((FAILURES + 1))
+else
+    printf '[OK] host: an unresolved document yields no host\n'
+fi
 
 if [[ "$FAILURES" -ne 0 ]]; then
     printf '\n%s: %s check(s) failed.\n' "$0" "$FAILURES" 1>&2
