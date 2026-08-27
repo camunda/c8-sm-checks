@@ -121,6 +121,19 @@ run_case "legacy: no database configured is rejected" \
     "[FAIL] (component=orchestration) OpenSearch must be enabled" \
     "[FAIL] (component=optimize) OpenSearch must be enabled"
 
+# The chart resolves Optimize's database with `optimize.indexPrefix`, which
+# tests Elasticsearch before OpenSearch. A deployment that enables both must be
+# reported as Elasticsearch, like the chart would use it.
+run_case "optimize mirrors the chart's elasticsearch-first precedence" \
+    "optimize" "$LEGACY_DEFAULTS" \
+    '{
+      "global": {"elasticsearch": {"enabled": true}},
+      "optimize": {"database": {"opensearch": {"enabled": true, "aws": {"enabled": true}}}}
+    }' \
+    1 \
+    "[INFO] (component=optimize) Resolved secondary storage type: elasticsearch" \
+    "[FAIL] (component=optimize) IRSA is only supported for OpenSearch"
+
 # --- Component-scoped values (chart 15.x) ------------------------------------
 
 run_case "chart 15: component-scoped opensearch with AWS mode passes" \
