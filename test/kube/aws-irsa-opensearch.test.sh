@@ -21,6 +21,16 @@ command -v jq >/dev/null 2>&1 || { echo 1>&2 "Error: jq is required but not inst
 
 FAILURES=0
 
+# assert_equals <name> <expected> <actual>
+assert_equals() {
+    if [[ "$3" == "$2" ]]; then
+        printf '[OK] %s\n' "$1"
+    else
+        printf '[FAIL] %s: expected "%s", got "%s"\n' "$1" "$2" "$3"
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+
 # Chart defaults up to 14.x: the deprecated global database trees are still
 # defined alongside the component-scoped ones. Only the keys the check reads are
 # reproduced here.
@@ -41,20 +51,10 @@ LEGACY_DEFAULTS='{
   }
 }'
 
-# Chart 15.x defaults: same tree with global.elasticsearch and global.opensearch
-# removed (camunda/camunda-platform-helm#6914).
-CHART_15_DEFAULTS='{
-  "orchestration": {
-    "data": {"secondaryStorage": {"type": "", "opensearch": {"aws": {"enabled": false}}}},
-    "exporters": {"rdbms": {"enabled": false}}
-  },
-  "optimize": {
-    "database": {
-      "elasticsearch": {"enabled": false},
-      "opensearch": {"enabled": false, "aws": {"enabled": false}}
-    }
-  }
-}'
+# Chart 15.x defaults: the same tree with the global database values removed
+# (camunda/camunda-platform-helm#6914). Derived from the legacy fixture so the
+# two cannot drift apart as the reproduced key set grows.
+CHART_15_DEFAULTS=$(jq -c 'del(.global)' <<< "$LEGACY_DEFAULTS")
 
 # run_case <name> <components> <defaults> <values> <expected status> [pattern...]
 #
@@ -233,17 +233,8 @@ run_case "absent deployed values fall back to the chart defaults" \
 
 # assert_host <name> <defaults> <values> <expected host>
 assert_host() {
-    local name="$1" defaults="$2" values="$3" expected="$4" actual
-
-    camunda_resolve_effective_values "$defaults" "$values" >/dev/null 2>&1
-    actual=$(camunda_opensearch_host "$CAMUNDA_EFFECTIVE_VALUES")
-
-    if [[ "$actual" == "$expected" ]]; then
-        printf '[OK] %s\n' "$name"
-    else
-        printf '[FAIL] %s: expected host "%s", got "%s"\n' "$name" "$expected" "$actual"
-        FAILURES=$((FAILURES + 1))
-    fi
+    camunda_resolve_effective_values "$2" "$3" >/dev/null 2>&1
+    assert_equals "$1" "$4" "$(camunda_opensearch_host "$CAMUNDA_EFFECTIVE_VALUES")"
 }
 
 assert_host "host: orchestration full URL is stripped to the host" \
@@ -279,12 +270,7 @@ assert_host "host: nothing configured resolves to empty" \
 
 # The URL check runs even when the merge failed; it must report no host instead
 # of tripping over an empty document.
-if [[ -n "$(camunda_opensearch_host "")" ]]; then
-    printf '[FAIL] host: an unresolved document should yield no host\n'
-    FAILURES=$((FAILURES + 1))
-else
-    printf '[OK] host: an unresolved document yields no host\n'
-fi
+assert_equals "host: an unresolved document yields no host" "" "$(camunda_opensearch_host "")"
 
 if [[ "$FAILURES" -ne 0 ]]; then
     printf '\n%s: %s check(s) failed.\n' "$0" "$FAILURES" 1>&2

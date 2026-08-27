@@ -751,9 +751,8 @@ if [[ -n "$COMPONENTS_TO_CHECK_IRSA_OS" ]]; then
         # The OpenSearch prerequisites are per-component since chart 15.x, so
         # they are validated only for those.
         OS_COMPONENTS_TO_VERIFY=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r 'keys | join(",")')
-        if ! camunda_resolve_effective_values "$HELM_CHART_DEFAULT_VALUES" "$HELM_CHART_VALUES"; then
-            SCRIPT_STATUS_OUTPUT=51
-        elif ! check_irsa_opensearch_requirements "$OS_COMPONENTS_TO_VERIFY" "$CAMUNDA_EFFECTIVE_VALUES" "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED"; then
+        if ! { camunda_resolve_effective_values "$HELM_CHART_DEFAULT_VALUES" "$HELM_CHART_VALUES" \
+            && check_irsa_opensearch_requirements "$OS_COMPONENTS_TO_VERIFY" "$CAMUNDA_EFFECTIVE_VALUES" "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED"; }; then
             SCRIPT_STATUS_OUTPUT=51
         fi
         check_opensearch_iam_enabled
