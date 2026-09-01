@@ -64,3 +64,16 @@ repos:
       rev: 0.2.3
       hooks:
           - id: yamlfmt
+
+    - repo: local
+      hooks:
+          # The checks are shell scripts driving a live cluster, so most of them can only be
+          # exercised end to end. The value-resolution logic that is pure computation is split
+          # into checks/kube/lib/ and unit-tested here, which is why this runs from pre-commit
+          # (and therefore from the lint workflow) rather than from a dedicated CI job.
+          - id: aws-irsa-opensearch-tests
+            name: aws-irsa OpenSearch prerequisites tests
+            language: script
+            entry: test/kube/aws-irsa-opensearch.test.sh
+            pass_filenames: false
+            files: ^(checks/kube/lib/|test/kube/)

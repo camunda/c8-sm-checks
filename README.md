@@ -88,6 +88,7 @@ Options:
 
 ##### Notes:
 - The script will display which components are being checked for IRSA support for both PostgreSQL and OpenSearch.
+- The OpenSearch prerequisites are read per component (`orchestration.data.secondaryStorage.*`, `optimize.database.opensearch.*`). The deprecated `global.opensearch.*` and `global.elasticsearch.*` values are still accepted as a fallback on the chart versions that define them; chart 15.x removed them.
 - You can exclude specific components from the checks if necessary.
 - By default, the script will spawn debugging pods using the `amazonlinux:latest` container image in the cluster.
 - Basic Linux commands such as `sed`, `awk`, and `grep` will also be required for the script's operation.

@@ -8,6 +8,13 @@ SCRIPT_NAME=$(basename "$0")
 DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
+# shellcheck source=checks/kube/lib/aws-irsa-opensearch.sh
+# shellcheck source-path=SCRIPTDIR
+source "$DIR_NAME/lib/aws-irsa-opensearch.sh" || {
+    echo 1>&2 "Error: unable to load $DIR_NAME/lib/aws-irsa-opensearch.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
+    exit 1
+}
+
 # Default variables
 NAMESPACE="${NAMESPACE:-""}"
 SCRIPT_STATUS_OUTPUT=0
@@ -638,61 +645,18 @@ EOF
     fi
 }
 
-check_irsa_opensearch_requirements() {
-    elasticsearch_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.elasticsearch.enabled')
-    if [[ -z "$elasticsearch_enabled" || "$elasticsearch_enabled" == "null" ]]; then
-        elasticsearch_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.elasticsearch.enabled')
-    fi
-
-    opensearch_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.enabled')
-    if [[ -z "$opensearch_enabled" || "$opensearch_enabled" == "null" ]]; then
-        opensearch_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.opensearch.enabled')
-    fi
-
-    opensearch_aws_enabled=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.aws.enabled')
-    if [[ -z "$opensearch_aws_enabled" || "$opensearch_aws_enabled" == "null" ]]; then
-        opensearch_aws_enabled=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r '.global.opensearch.aws.enabled')
-    fi
-
-    # Perform the checks and output messages accordingly
-    if [[ "$elasticsearch_enabled" == "true" ]]; then
-        echo "[FAIL] IRSA is only supported for OpenSearch. Set global.elasticsearch.enabled to false and use OpenSearch instead." 1>&2
-        SCRIPT_STATUS_OUTPUT=51
-    fi
-
-    if [[ "$opensearch_enabled" != "true" ]]; then
-        echo "[FAIL] OpenSearch must be enabled for IRSA to work. Set global.opensearch.enabled to true." 1>&2
-        SCRIPT_STATUS_OUTPUT=51
-    fi
-
-    if [[ "$opensearch_aws_enabled" != "true" ]]; then
-        echo "[FAIL] OpenSearch AWS integration must be enabled. Set global.opensearch.aws.enabled to true." 1>&2
-        SCRIPT_STATUS_OUTPUT=51
-    fi
-
-    if [[ "$SCRIPT_STATUS_OUTPUT" -ne 51 ]]; then
-        echo "[OK] OpenSearch is correctly configured for IRSA support."
-    fi
-}
-
 check_opensearch_iam_enabled() {
-    opensearch_url=$(echo "$HELM_CHART_VALUES" | jq -r '.global.opensearch.url.host')
+    # Resolved with the chart's precedence (component-scoped first, the
+    # deprecated global tree as a fallback) and from the same effective values as
+    # the prerequisites above, so both checks verify the same OpenSearch domain.
+    opensearch_url=$(camunda_opensearch_host "$CAMUNDA_EFFECTIVE_VALUES")
 
-    # Fallback to per-component paths (Camunda 8.8+: orchestration/optimize have their own opensearch config)
     if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        opensearch_url=$(echo "$HELM_CHART_VALUES" | jq -r '.optimize.database.opensearch.url.host // empty')
-    fi
-    if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        # orchestration stores the full URL, extract the host
-        local full_url
-        full_url=$(echo "$HELM_CHART_VALUES" | jq -r '.orchestration.data.secondaryStorage.opensearch.url // empty')
-        if [[ -n "$full_url" && "$full_url" != "null" ]]; then
-            opensearch_url=$(echo "$full_url" | sed -E 's|^https?://||' | sed -E 's|(/.*)||' | sed -E 's|:[0-9]+$||')
+        opensearch_url_hint="'.orchestration.data.secondaryStorage.opensearch.url' or '.optimize.database.opensearch.url.host'"
+        if [[ "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED" == "true" ]]; then
+            opensearch_url_hint="$opensearch_url_hint (or the deprecated '.global.opensearch.url.host')"
         fi
-    fi
-
-    if [[ -z "$opensearch_url" || "$opensearch_url" == "null" ]]; then
-        echo "[FAIL] The OpenSearch URL is not set. Please ensure that '.global.opensearch.url.host' or per-component opensearch URL is correctly specified in the Helm chart values." 1>&2
+        echo "[FAIL] The OpenSearch URL is not set. Please ensure that $opensearch_url_hint is correctly specified in the Helm chart values." 1>&2
         SCRIPT_STATUS_OUTPUT=61
         return
     fi
@@ -782,7 +746,15 @@ check_opensearch_iam_enabled() {
 if [[ -n "$COMPONENTS_TO_CHECK_IRSA_OS" ]]; then
     # Use grep -q to check for exclusion
     if ! echo "$COMPONENTS_TO_CHECK_IRSA_OS" | grep -q -F -x -f <(printf '%s\n' "${EXCLUDE_COMPONENTS_ARRAY[@]}"); then
-        check_irsa_opensearch_requirements
+        # OS_SERVICE_ACCOUNTS holds the components that are actually being
+        # checked: the requested list minus the excluded and the disabled ones.
+        # The OpenSearch prerequisites are per-component since chart 15.x, so
+        # they are validated only for those.
+        OS_COMPONENTS_TO_VERIFY=$(echo "$OS_SERVICE_ACCOUNTS" | jq -r 'keys | join(",")')
+        if ! { camunda_resolve_effective_values "$HELM_CHART_DEFAULT_VALUES" "$HELM_CHART_VALUES" \
+            && check_irsa_opensearch_requirements "$OS_COMPONENTS_TO_VERIFY" "$CAMUNDA_EFFECTIVE_VALUES" "$CAMUNDA_GLOBAL_DATABASE_VALUES_SUPPORTED"; }; then
+            SCRIPT_STATUS_OUTPUT=51
+        fi
         check_opensearch_iam_enabled
     fi
 fi
