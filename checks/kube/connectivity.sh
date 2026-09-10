@@ -162,11 +162,34 @@ service_annotation() {
     kubectl get service -n "$NAMESPACE" "$1" -o jsonpath="{.metadata.annotations.$2}" 2>/dev/null
 }
 
-# "<service> <port-number> <port-name>" per backend the Ingress routes to, default
+# "<service>|<port-number>|<port-name>" per backend the Ingress routes to, default
 # backend included: Contour takes its upstream protocol from the backend Service,
-# not from the Ingress, and only for the ports the annotation lists.
+# not from the Ingress, and only for the ports the annotation lists. Pipe-separated
+# because a port reference carries either a number or a name, never both, and a
+# whitespace separator would collapse the empty field and shift the other one.
 ingress_backends() {
-    kubectl get ingress -n "$NAMESPACE" "$1" -o jsonpath='{range .spec.rules[*].http.paths[*]}{.backend.service.name}{" "}{.backend.service.port.number}{" "}{.backend.service.port.name}{"\n"}{end}{.spec.defaultBackend.service.name}{" "}{.spec.defaultBackend.service.port.number}{" "}{.spec.defaultBackend.service.port.name}{"\n"}' 2>/dev/null | awk 'NF'
+    kubectl get ingress -n "$NAMESPACE" "$1" -o jsonpath='{range .spec.rules[*].http.paths[*]}{.backend.service.name}{"|"}{.backend.service.port.number}{"|"}{.backend.service.port.name}{"\n"}{end}{.spec.defaultBackend.service.name}{"|"}{.spec.defaultBackend.service.port.number}{"|"}{.spec.defaultBackend.service.port.name}{"\n"}' 2>/dev/null | grep -v '^||$'
+}
+
+# An Ingress may reference a Service port by number or by name, while Contour's
+# annotation may list either. Resolve the missing half so both can be matched.
+service_port_pair() {
+    local service_name="$1"
+    local port_number="$2"
+    local port_name="$3"
+
+    if [ -n "$port_number" ] && [ -n "$port_name" ]; then
+        printf '%s|%s' "$port_number" "$port_name"
+        return
+    fi
+    if [ -n "$port_number" ]; then
+        printf '%s|%s' "$port_number" \
+            "$(kubectl get service -n "$NAMESPACE" "$service_name" -o jsonpath="{.spec.ports[?(@.port==$port_number)].name}" 2>/dev/null)"
+        return
+    fi
+    printf '%s|%s' \
+        "$(kubectl get service -n "$NAMESPACE" "$service_name" -o jsonpath="{.spec.ports[?(@.name=='$port_name')].port}" 2>/dev/null)" \
+        "$port_name"
 }
 
 ingress_declares_grpc_upstream() {
@@ -184,8 +207,9 @@ ingress_declares_grpc_upstream() {
         *) return 1 ;;
     esac
 
-    while read -r service_name port_number port_name; do
+    while IFS="|" read -r service_name port_number port_name; do
         [ -n "$service_name" ] || continue
+        IFS="|" read -r port_number port_name <<<"$(service_port_pair "$service_name" "$port_number" "$port_name")"
         if camunda_contour_upstream_protocol_covers_port \
             "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2c')" \
             "$port_number" "$port_name" ||
