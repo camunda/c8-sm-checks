@@ -153,22 +153,48 @@ check_services_resolution() {
 }
 check_services_resolution
 
-# Value of a single annotation on an Ingress; the key arrives with its dots already escaped for jsonpath.
+# Value of a single annotation; the key arrives with its dots already escaped for jsonpath.
 ingress_annotation() {
     kubectl get ingress -n "$NAMESPACE" "$1" -o jsonpath="{.metadata.annotations.$2}" 2>/dev/null
 }
 
-# Same, but read from every Service the Ingress routes to: Contour takes its
-# upstream protocol from the backend Service, not from the Ingress.
-backend_service_annotation() {
-    local ingress_name="$1"
-    local annotation="$2"
-    local service_name
+service_annotation() {
+    kubectl get service -n "$NAMESPACE" "$1" -o jsonpath="{.metadata.annotations.$2}" 2>/dev/null
+}
 
-    for service_name in $(kubectl get ingress -n "$NAMESPACE" "$ingress_name" \
-        -o jsonpath='{range .spec.rules[*].http.paths[*]}{.backend.service.name}{"\n"}{end}' 2>/dev/null | sort -u); do
-        kubectl get service -n "$NAMESPACE" "$service_name" -o jsonpath="{.metadata.annotations.$annotation}" 2>/dev/null
-    done
+# "<service> <port-number> <port-name>" per backend the Ingress routes to, default
+# backend included: Contour takes its upstream protocol from the backend Service,
+# not from the Ingress, and only for the ports the annotation lists.
+ingress_backends() {
+    kubectl get ingress -n "$NAMESPACE" "$1" -o jsonpath='{range .spec.rules[*].http.paths[*]}{.backend.service.name}{" "}{.backend.service.port.number}{" "}{.backend.service.port.name}{"\n"}{end}{.spec.defaultBackend.service.name}{" "}{.spec.defaultBackend.service.port.number}{" "}{.spec.defaultBackend.service.port.name}{"\n"}' 2>/dev/null | awk 'NF'
+}
+
+ingress_declares_grpc_upstream() {
+    local ingress_name="$1"
+    local ingress_class="$2"
+    local nginx_backend_protocol
+    local service_name port_number port_name
+
+    nginx_backend_protocol=$(ingress_annotation "$ingress_name" 'nginx\.ingress\.kubernetes\.io/backend-protocol')
+
+    if [ "$ingress_class" = "nginx" ]; then
+        camunda_ingress_grpc_hint_present "$ingress_class" "$nginx_backend_protocol" "" "" "" ""
+        return
+    fi
+
+    while read -r service_name port_number port_name; do
+        [ -n "$service_name" ] || continue
+        if camunda_ingress_grpc_hint_present "$ingress_class" "$nginx_backend_protocol" \
+            "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2c')" \
+            "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2')" \
+            "$port_number" "$port_name"; then
+            return 0
+        fi
+    done <<EOF
+$(ingress_backends "$ingress_name")
+EOF
+
+    return 1
 }
 
 check_ingress_class_and_config() {
@@ -199,10 +225,7 @@ check_ingress_class_and_config() {
             echo "[OK] Ingress class for $ingress_name is configured correctly with $ingress_class."
         fi
 
-        if camunda_ingress_grpc_hint_present "$ingress_class" \
-            "$(ingress_annotation "$ingress_name" 'nginx\.ingress\.kubernetes\.io/backend-protocol')" \
-            "$(backend_service_annotation "$ingress_name" 'projectcontour\.io/upstream-protocol\.h2c')" \
-            "$(backend_service_annotation "$ingress_name" 'projectcontour\.io/upstream-protocol\.h2')"; then
+        if ingress_declares_grpc_upstream "$ingress_name" "$ingress_class"; then
             echo "[OK] Ingress $ingress_name declares a gRPC upstream for the $ingress_class controller."
             annotation_found=1
         fi
