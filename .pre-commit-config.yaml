@@ -77,3 +77,10 @@ repos:
             entry: test/kube/aws-irsa-opensearch.test.sh
             pass_filenames: false
             files: ^(checks/kube/lib/|test/kube/)
+
+          - id: ingress-grpc-tests
+            name: ingress gRPC upstream hint tests
+            language: script
+            entry: test/kube/ingress-grpc.test.sh
+            pass_filenames: false
+            files: ^(checks/kube/lib/|test/kube/)

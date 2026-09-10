@@ -122,6 +122,11 @@ Options:
 ./checks/kube/connectivity.sh -n camunda-primary
 ```
 
+##### Notes:
+
+- Supported Ingress controllers are `ingress-nginx` and [Contour](https://projectcontour.io/). Use `-i` to skip the Ingress checks if you run another one.
+- The check also verifies that the Zeebe gRPC upstream is declared, which each controller expresses differently. With `ingress-nginx` the Ingress carries `nginx.ingress.kubernetes.io/backend-protocol: GRPC` (`GRPCS` for a TLS upstream). With Contour the *Service* behind the Ingress carries `projectcontour.io/upstream-protocol.h2c` (`.h2` for a TLS upstream) listing the gRPC port. A Contour deployment that only carries the nginx annotation is reported as a failure, because Envoy ignores it.
+
 ##### Dependencies:
 
 - `kubectl`: Required for interacting with Kubernetes clusters.
