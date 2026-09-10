@@ -146,9 +146,9 @@ check_containers_in_pods() {
 }
 check_containers_in_pods
 
-# From Camunda 8.10 Console has no standalone deployment: it is a Web Modeler
-# feature toggled by CAMUNDA_MODELER_FEATURE_CONSOLE_ENABLED, so it cannot be
-# asserted by container name.
+# Since Camunda 8.10, the Console has no standalone deployment: it is a Web
+# Modeler feature toggled by CAMUNDA_MODELER_FEATURE_CONSOLE_ENABLED, so it
+# cannot be asserted by container name.
 check_console_hub_feature() {
     if [[ "$CHECK_CONSOLE_HUB_FEATURE" -ne 1 ]]; then
         return
@@ -156,21 +156,38 @@ check_console_hub_feature() {
 
     echo "[INFO] Check presence of Console as a Camunda Hub feature on ${CONSOLE_HUB_CONTAINER}"
 
-    local console_enabled
-    local console_enabled_command
-    console_enabled_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{range .spec.containers[?(@.name==\"${CONSOLE_HUB_CONTAINER}\")]}{range .env[?(@.name==\"${CONSOLE_HUB_ENV}\")]}{.value}{\"\n\"}{end}{end}{end}'"
-    echo "[INFO] Running command: ${console_enabled_command}"
-    console_enabled=$(eval "${console_enabled_command}" | grep -v '^$' | head -n 1)
+    local console_values
+    local console_values_command
+    local kubectl_status
+    console_values_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{range .spec.containers[?(@.name==\"${CONSOLE_HUB_CONTAINER}\")]}{range .env[?(@.name==\"${CONSOLE_HUB_ENV}\")]}{.value}{\"\n\"}{end}{end}{end}'"
+    echo "[INFO] Running command: ${console_values_command}"
+    console_values=$(eval "${console_values_command}")
+    kubectl_status=$?
 
-    if [[ "$console_enabled" == "true" ]]; then
-        echo "[OK] Console is enabled as a Camunda Hub feature on ${CONSOLE_HUB_CONTAINER} in namespace $NAMESPACE"
-    elif [[ -z "$console_enabled" ]]; then
+    if [[ "$kubectl_status" -ne 0 ]]; then
+        echo "[FAIL] Unable to query ${CONSOLE_HUB_ENV} in namespace $NAMESPACE: kubectl exited with ${kubectl_status}" >&2
+        SCRIPT_STATUS_OUTPUT=7
+        return
+    fi
+
+    console_values=$(echo "$console_values" | grep -v '^$')
+
+    if [[ -z "$console_values" ]]; then
         echo "[FAIL] ${CONSOLE_HUB_ENV} is not set on any ${CONSOLE_HUB_CONTAINER} container in namespace $NAMESPACE" >&2
         SCRIPT_STATUS_OUTPUT=6
-    else
-        echo "[FAIL] Console is not enabled as a Camunda Hub feature in namespace $NAMESPACE (${CONSOLE_HUB_ENV}=${console_enabled})" >&2
-        SCRIPT_STATUS_OUTPUT=6
+        return
     fi
+
+    local not_enabled
+    not_enabled=$(echo "$console_values" | grep -cv '^true$')
+
+    if [[ "$not_enabled" -ne 0 ]]; then
+        echo "[FAIL] Console is not enabled as a Camunda Hub feature on ${not_enabled} ${CONSOLE_HUB_CONTAINER} container(s) in namespace $NAMESPACE (${CONSOLE_HUB_ENV} values: $(echo "$console_values" | tr '\n' ' '))" >&2
+        SCRIPT_STATUS_OUTPUT=6
+        return
+    fi
+
+    echo "[OK] Console is enabled as a Camunda Hub feature on every ${CONSOLE_HUB_CONTAINER} container in namespace $NAMESPACE"
 }
 check_console_hub_feature
 

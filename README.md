@@ -55,9 +55,11 @@ Options:
 ./checks/kube/deployment.sh -n camunda-primary -d camunda -c "orchestration,web-modeler"
 ```
 
-From Camunda 8.10 the Console has no standalone deployment: it is a Web Modeler feature
+Since Camunda 8.10, the Console has no standalone deployment: it is a Web Modeler feature
 driven by `CAMUNDA_MODELER_FEATURE_CONSOLE_ENABLED`, so it cannot be asserted by container
-name. Use `-o` to assert it on the Web Modeler REST API container instead:
+name. Use `-o` to assert it on the Web Modeler REST API container instead. The check fails
+if any Web Modeler REST API container has the feature disabled or unset, and reports a
+distinct exit code if the `kubectl` query itself fails:
 
 ```bash
 ./checks/kube/deployment.sh -n camunda -c "orchestration,web-modeler" -o
