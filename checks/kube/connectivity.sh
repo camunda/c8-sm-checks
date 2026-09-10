@@ -172,22 +172,26 @@ ingress_backends() {
 ingress_declares_grpc_upstream() {
     local ingress_name="$1"
     local ingress_class="$2"
-    local nginx_backend_protocol
     local service_name port_number port_name
 
-    nginx_backend_protocol=$(ingress_annotation "$ingress_name" 'nginx\.ingress\.kubernetes\.io/backend-protocol')
-
-    if [ "$ingress_class" = "nginx" ]; then
-        camunda_ingress_grpc_hint_present "$ingress_class" "$nginx_backend_protocol" "" "" "" ""
-        return
-    fi
+    case "$ingress_class" in
+        nginx)
+            camunda_nginx_grpc_backend_protocol_valid \
+                "$(ingress_annotation "$ingress_name" 'nginx\.ingress\.kubernetes\.io/backend-protocol')"
+            return
+            ;;
+        contour) ;;
+        *) return 1 ;;
+    esac
 
     while read -r service_name port_number port_name; do
         [ -n "$service_name" ] || continue
-        if camunda_ingress_grpc_hint_present "$ingress_class" "$nginx_backend_protocol" \
+        if camunda_contour_upstream_protocol_covers_port \
             "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2c')" \
-            "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2')" \
-            "$port_number" "$port_name"; then
+            "$port_number" "$port_name" ||
+            camunda_contour_upstream_protocol_covers_port \
+                "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2')" \
+                "$port_number" "$port_name"; then
             return 0
         fi
     done <<EOF

@@ -45,32 +45,9 @@ camunda_contour_upstream_protocol_covers_port() {
     return 1
 }
 
-# camunda_ingress_grpc_hint_present <ingress-class> <nginx-backend-protocol> <contour-h2c> <contour-h2> <port-number> <port-name>
+# camunda_nginx_grpc_backend_protocol_valid <backend-protocol>
 #
-# Returns 0 when the given annotation values describe a working gRPC upstream
-# for that ingress class, 1 otherwise. An unknown class always returns 1: the
-# caller has no way to tell what such a controller would need.
-camunda_ingress_grpc_hint_present() {
-    local ingress_class="$1"
-    local nginx_backend_protocol="$2"
-    local contour_h2c="$3"
-    local contour_h2="$4"
-    local port_number="$5"
-    local port_name="$6"
-
-    case "$ingress_class" in
-        nginx)
-            [ "$nginx_backend_protocol" = "GRPC" ] || [ "$nginx_backend_protocol" = "GRPCS" ]
-            ;;
-        contour)
-            # Deliberately ignores nginx.ingress.kubernetes.io/backend-protocol:
-            # the Camunda chart emits it by default whatever the ingress class,
-            # and Envoy does not read it (camunda/camunda-platform-helm#6410).
-            camunda_contour_upstream_protocol_covers_port "$contour_h2c" "$port_number" "$port_name" ||
-                camunda_contour_upstream_protocol_covers_port "$contour_h2" "$port_number" "$port_name"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+# Returns 0 when the Ingress annotation names a gRPC backend, plaintext or TLS.
+camunda_nginx_grpc_backend_protocol_valid() {
+    [ "$1" = "GRPC" ] || [ "$1" = "GRPCS" ]
 }

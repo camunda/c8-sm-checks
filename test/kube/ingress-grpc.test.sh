@@ -22,13 +22,13 @@ source "$TEST_DIR/../../checks/kube/lib/ingress-grpc.sh"
 
 FAILURES=0
 
-# run_case <name> <expected status> <ingress-class> <nginx-backend-protocol> <contour-h2c> <contour-h2> <port-number> <port-name>
-run_case() {
+# run_nginx_case <name> <expected status> <backend-protocol>
+run_nginx_case() {
     local name="$1" expected_status="$2"
     shift 2
     local status
 
-    camunda_ingress_grpc_hint_present "$@"
+    camunda_nginx_grpc_backend_protocol_valid "$@"
     status=$?
 
     if [[ "$status" -eq "$expected_status" ]]; then
@@ -56,84 +56,47 @@ run_port_case() {
     fi
 }
 
-# --- Contour port selection ----------------------------------------------------
-
-run_port_case "port: a single matching number is covered" \
-    0 "26500" "26500" "gateway"
-
-run_port_case "port: a matching name is covered" \
-    0 "gateway" "26500" "gateway"
-
-run_port_case "port: one entry of a comma-separated list is covered" \
-    0 "8080,26500,9090" "26500" "gateway"
-
-run_port_case "port: surrounding whitespace is tolerated" \
-    0 "8080, 26500" "26500" "gateway"
-
-run_port_case "port: an unrelated port is not covered" \
-    1 "8080" "26500" "gateway"
-
-run_port_case "port: a numeric prefix is not a match" \
-    1 "2650" "26500" "gateway"
-
-run_port_case "port: an empty annotation covers nothing" \
-    1 "" "26500" "gateway"
-
-run_port_case "port: a service without a named port still matches by number" \
-    0 "26500" "26500" ""
-
 # --- ingress-nginx: the hint lives on the Ingress ------------------------------
 
-run_case "nginx: backend-protocol GRPC is accepted" \
-    0 "nginx" "GRPC" "" "" "" ""
+run_nginx_case "nginx: backend-protocol GRPC is accepted" 0 "GRPC"
+run_nginx_case "nginx: backend-protocol GRPCS is accepted (TLS upstream)" 0 "GRPCS"
+run_nginx_case "nginx: an HTTP backend-protocol is not a gRPC hint" 1 "HTTPS"
+run_nginx_case "nginx: no annotation at all is rejected" 1 ""
 
-run_case "nginx: backend-protocol GRPCS is accepted (TLS upstream)" \
-    0 "nginx" "GRPCS" "" "" "" ""
+# --- Contour: the hint lives on the backing Service, and only for listed ports --
 
-run_case "nginx: an HTTP backend-protocol is not a gRPC hint" \
-    1 "nginx" "HTTPS" "" "" "" ""
+run_port_case "contour: a single matching port number is covered" \
+    0 "26500" "26500" "gateway"
 
-run_case "nginx: no annotation at all is rejected" \
-    1 "nginx" "" "" "" "" ""
+run_port_case "contour: a matching port name is covered" \
+    0 "gateway" "26500" "gateway"
 
-# Contour's Service annotation means nothing to ingress-nginx, which only reads
-# its own annotation off the Ingress.
-run_case "nginx: a Contour upstream-protocol annotation does not satisfy nginx" \
-    1 "nginx" "" "26500" "" "26500" "gateway"
+run_port_case "contour: one entry of a comma-separated list is covered" \
+    0 "8080,26500,9090" "26500" "gateway"
 
-# --- Contour: the hint lives on the backing Service ----------------------------
-
-run_case "contour: upstream-protocol.h2c covering the port is accepted" \
-    0 "contour" "" "26500" "" "26500" "gateway"
-
-run_case "contour: upstream-protocol.h2 covering the port is accepted (TLS upstream)" \
-    0 "contour" "" "" "26500" "26500" "gateway"
-
-run_case "contour: a port name rather than a number is accepted" \
-    0 "contour" "" "gateway" "" "26500" "gateway"
-
-run_case "contour: no upstream-protocol annotation is rejected" \
-    1 "contour" "" "" "" "26500" "gateway"
+run_port_case "contour: surrounding whitespace is tolerated" \
+    0 "8080, 26500" "26500" "gateway"
 
 # The annotation only switches the ports it lists, so an entry for a different
 # backend port leaves the Zeebe upstream on HTTP/1.
-run_case "contour: an annotation for an unrelated port does not satisfy the check" \
-    1 "contour" "" "8080" "" "26500" "gateway"
+run_port_case "contour: an unrelated port is not covered" \
+    1 "8080" "26500" "gateway"
 
-# The Camunda Helm chart still emits nginx.ingress.kubernetes.io/backend-protocol
-# by default whatever the ingress class, so a Contour deployment carries it even
-# though Envoy ignores it. It must not be mistaken for a working gRPC upstream.
-# See camunda/camunda-platform-helm#6410.
-run_case "contour: the chart's leftover nginx annotation does not satisfy Contour" \
-    1 "contour" "GRPC" "" "" "26500" "gateway"
+run_port_case "contour: a numeric prefix is not a match" \
+    1 "2650" "26500" "gateway"
 
-# --- Other controllers ---------------------------------------------------------
+run_port_case "contour: an empty annotation covers nothing" \
+    1 "" "26500" "gateway"
 
-run_case "an unknown ingress class has no known hint" \
-    1 "traefik" "GRPC" "26500" "" "26500" "gateway"
+run_port_case "contour: a service without a named port still matches by number" \
+    0 "26500" "26500" ""
 
-run_case "an empty ingress class has no known hint" \
-    1 "" "" "" "" "" ""
+# The Camunda Helm chart historically emitted
+# nginx.ingress.kubernetes.io/backend-protocol whatever the ingress class
+# (camunda/camunda-platform-helm#6410). The Contour predicate cannot read that
+# annotation at all, so a leftover copy of it can never satisfy the check.
+run_port_case "contour: an nginx backend-protocol value is not a port list" \
+    1 "GRPC" "26500" "gateway"
 
 if [[ "$FAILURES" -ne 0 ]]; then
     printf '\n%s: %s check(s) failed.\n' "$0" "$FAILURES" 1>&2
