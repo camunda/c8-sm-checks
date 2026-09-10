@@ -16,6 +16,10 @@ DEFAULT_REQUIRED_CONTAINERS="connector,optimize,zeebe"
 REQUIRED_CONTAINERS=()
 IFS=',' read -ra REQUIRED_CONTAINERS <<< "$DEFAULT_REQUIRED_CONTAINERS"
 
+CHECK_CONSOLE_HUB_FEATURE=0
+CONSOLE_HUB_CONTAINER="web-modeler-restapi"
+CONSOLE_HUB_ENV="CAMUNDA_MODELER_FEATURE_CONSOLE_ENABLED"
+
 usage() {
     echo "Usage: $0 [-h] [-n NAMESPACE] [-d HELM_DEPLOYMENT_NAME]"
     echo "Options:"
@@ -24,11 +28,12 @@ usage() {
     echo "  -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: $HELM_DEPLOYMENT_NAME)"
     echo "  -l                              Skip checks of the helm deployment (default: $SKIP_CHECK_HELM_DEPLOYMENT)"
     echo "  -c                              Specify the list of containers to check (comma-separated, default: ${DEFAULT_REQUIRED_CONTAINERS})"
+    echo "  -o                              Check that Console is enabled as a Camunda Hub feature on the ${CONSOLE_HUB_CONTAINER} container instead of expecting a standalone console container (Camunda 8.10+)"
     exit 1
 }
 
 # Parse command line options
-while getopts ":hd:n:c:l" opt; do
+while getopts ":hd:n:c:lo" opt; do
     case ${opt} in
         h)
             usage
@@ -44,6 +49,9 @@ while getopts ":hd:n:c:l" opt; do
             ;;
         c)
             IFS=',' read -ra REQUIRED_CONTAINERS <<< "$OPTARG"
+            ;;
+        o)
+            CHECK_CONSOLE_HUB_FEATURE=1
             ;;
         \?)
             echo "Invalid option: $OPTARG" 1>&2
@@ -137,6 +145,34 @@ check_containers_in_pods() {
     done
 }
 check_containers_in_pods
+
+# From Camunda 8.10 Console has no standalone deployment: it is a Web Modeler
+# feature toggled by CAMUNDA_MODELER_FEATURE_CONSOLE_ENABLED, so it cannot be
+# asserted by container name.
+check_console_hub_feature() {
+    if [[ "$CHECK_CONSOLE_HUB_FEATURE" -ne 1 ]]; then
+        return
+    fi
+
+    echo "[INFO] Check presence of Console as a Camunda Hub feature on ${CONSOLE_HUB_CONTAINER}"
+
+    local console_enabled
+    local console_enabled_command
+    console_enabled_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{range .spec.containers[?(@.name==\"${CONSOLE_HUB_CONTAINER}\")]}{range .env[?(@.name==\"${CONSOLE_HUB_ENV}\")]}{.value}{\"\n\"}{end}{end}{end}'"
+    echo "[INFO] Running command: ${console_enabled_command}"
+    console_enabled=$(eval "${console_enabled_command}" | grep -v '^$' | head -n 1)
+
+    if [[ "$console_enabled" == "true" ]]; then
+        echo "[OK] Console is enabled as a Camunda Hub feature on ${CONSOLE_HUB_CONTAINER} in namespace $NAMESPACE"
+    elif [[ -z "$console_enabled" ]]; then
+        echo "[FAIL] ${CONSOLE_HUB_ENV} is not set on any ${CONSOLE_HUB_CONTAINER} container in namespace $NAMESPACE" >&2
+        SCRIPT_STATUS_OUTPUT=6
+    else
+        echo "[FAIL] Console is not enabled as a Camunda Hub feature in namespace $NAMESPACE (${CONSOLE_HUB_ENV}=${console_enabled})" >&2
+        SCRIPT_STATUS_OUTPUT=6
+    fi
+}
+check_console_hub_feature
 
 # Check if SCRIPT_STATUS_OUTPUT is not equal to zero
 if [ "$SCRIPT_STATUS_OUTPUT" -ne 0 ]; then
