@@ -159,7 +159,7 @@ check_console_hub_feature() {
     local console_values
     local console_values_command
     local kubectl_status
-    console_values_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{range .spec.containers[?(@.name==\"${CONSOLE_HUB_CONTAINER}\")]}{range .env[?(@.name==\"${CONSOLE_HUB_ENV}\")]}{.value}{\"\n\"}{end}{end}{end}'"
+    console_values_command="kubectl get pods -n \"$NAMESPACE\" -o jsonpath='{range .items[*]}{range .spec.containers[?(@.name==\"${CONSOLE_HUB_CONTAINER}\")]}{.name}={range .env[?(@.name==\"${CONSOLE_HUB_ENV}\")]}{.value}{end}{\"\n\"}{end}{end}'"
     echo "[INFO] Running command: ${console_values_command}"
     console_values=$(eval "${console_values_command}")
     kubectl_status=$?
@@ -170,24 +170,25 @@ check_console_hub_feature() {
         return
     fi
 
-    console_values=$(echo "$console_values" | grep -v '^$')
-
     if [[ -z "$console_values" ]]; then
-        echo "[FAIL] ${CONSOLE_HUB_ENV} is not set on any ${CONSOLE_HUB_CONTAINER} container in namespace $NAMESPACE" >&2
+        echo "[FAIL] No ${CONSOLE_HUB_CONTAINER} container found in namespace $NAMESPACE, cannot verify Console as a Camunda Hub feature" >&2
         SCRIPT_STATUS_OUTPUT=6
         return
     fi
 
+    local total
     local not_enabled
-    not_enabled=$(echo "$console_values" | grep -cv '^true$')
+    total=$(echo "$console_values" | grep -c '')
+    not_enabled=$(echo "$console_values" | grep -cv "=true$")
 
     if [[ "$not_enabled" -ne 0 ]]; then
-        echo "[FAIL] Console is not enabled as a Camunda Hub feature on ${not_enabled} ${CONSOLE_HUB_CONTAINER} container(s) in namespace $NAMESPACE (${CONSOLE_HUB_ENV} values: $(echo "$console_values" | tr '\n' ' '))" >&2
+        echo "[FAIL] Console is not enabled as a Camunda Hub feature on ${not_enabled} of ${total} ${CONSOLE_HUB_CONTAINER} container(s) in namespace $NAMESPACE (${CONSOLE_HUB_ENV} is empty when unset):" >&2
+        echo "$console_values" | grep -v "=true$" >&2
         SCRIPT_STATUS_OUTPUT=6
         return
     fi
 
-    echo "[OK] Console is enabled as a Camunda Hub feature on every ${CONSOLE_HUB_CONTAINER} container in namespace $NAMESPACE"
+    echo "[OK] Console is enabled as a Camunda Hub feature on all ${total} ${CONSOLE_HUB_CONTAINER} container(s) in namespace $NAMESPACE"
 }
 check_console_hub_feature
 
