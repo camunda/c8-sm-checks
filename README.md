@@ -47,11 +47,22 @@ Options:
   -d HELM_DEPLOYMENT_NAME         Specify the name of the helm deployment (default: camunda)
   -l                              Skip checks of the helm deployment (default: 0)
   -c                              Specify the list of containers to check (comma-separated, default: connector,optimize,orchestration)
+  -o                              Check that Console is enabled as a Camunda Hub feature on the web-modeler-restapi container instead of expecting a standalone console container (Camunda 8.10+)
 ```
 
 ##### Example:
 ```bash
 ./checks/kube/deployment.sh -n camunda-primary -d camunda -c "orchestration,web-modeler"
+```
+
+Since Camunda 8.10, the Console has no standalone deployment: it is a Web Modeler feature
+driven by `CAMUNDA_MODELER_FEATURE_CONSOLE_ENABLED`, so it cannot be asserted by container
+name. Use `-o` to assert it on the Web Modeler REST API container instead. The check fails
+if any Web Modeler REST API container has the feature disabled or unset, and reports a
+distinct exit code if the `kubectl` query itself fails:
+
+```bash
+./checks/kube/deployment.sh -n camunda -c "orchestration,web-modeler" -o
 ```
 
 ##### Dependencies:
