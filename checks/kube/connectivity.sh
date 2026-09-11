@@ -7,6 +7,13 @@ SCRIPT_NAME=$(basename "$0")
 DIR_NAME=$(dirname "$0")
 LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
+# shellcheck source=checks/kube/lib/ingress-grpc.sh
+# shellcheck source-path=SCRIPTDIR
+source "$DIR_NAME/lib/ingress-grpc.sh" || {
+    echo 1>&2 "Error: unable to load $DIR_NAME/lib/ingress-grpc.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
+    exit 1
+}
+
 # Define default variables
 NAMESPACE="${NAMESPACE:-""}"
 SKIP_CHECK_INGRESS_CLASS=0
@@ -146,6 +153,78 @@ check_services_resolution() {
 }
 check_services_resolution
 
+# Value of a single annotation; the key arrives with its dots already escaped for jsonpath.
+ingress_annotation() {
+    kubectl get ingress -n "$NAMESPACE" "$1" -o jsonpath="{.metadata.annotations.$2}" 2>/dev/null
+}
+
+service_annotation() {
+    kubectl get service -n "$NAMESPACE" "$1" -o jsonpath="{.metadata.annotations.$2}" 2>/dev/null
+}
+
+# "<service>|<port-number>|<port-name>" per backend the Ingress routes to, default
+# backend included: Contour takes its upstream protocol from the backend Service,
+# not from the Ingress, and only for the ports the annotation lists. Pipe-separated
+# because a port reference carries either a number or a name, never both, and a
+# whitespace separator would collapse the empty field and shift the other one.
+ingress_backends() {
+    kubectl get ingress -n "$NAMESPACE" "$1" -o jsonpath='{range .spec.rules[*].http.paths[*]}{.backend.service.name}{"|"}{.backend.service.port.number}{"|"}{.backend.service.port.name}{"\n"}{end}{.spec.defaultBackend.service.name}{"|"}{.spec.defaultBackend.service.port.number}{"|"}{.spec.defaultBackend.service.port.name}{"\n"}' 2>/dev/null | grep -v '^||$'
+}
+
+# An Ingress may reference a Service port by number or by name, while Contour's
+# annotation may list either. Resolve the missing half so both can be matched.
+service_port_pair() {
+    local service_name="$1"
+    local port_number="$2"
+    local port_name="$3"
+
+    if [ -n "$port_number" ] && [ -n "$port_name" ]; then
+        printf '%s|%s' "$port_number" "$port_name"
+        return
+    fi
+    if [ -n "$port_number" ]; then
+        printf '%s|%s' "$port_number" \
+            "$(kubectl get service -n "$NAMESPACE" "$service_name" -o jsonpath="{.spec.ports[?(@.port==$port_number)].name}" 2>/dev/null)"
+        return
+    fi
+    printf '%s|%s' \
+        "$(kubectl get service -n "$NAMESPACE" "$service_name" -o jsonpath="{.spec.ports[?(@.name=='$port_name')].port}" 2>/dev/null)" \
+        "$port_name"
+}
+
+ingress_declares_grpc_upstream() {
+    local ingress_name="$1"
+    local ingress_class="$2"
+    local service_name port_number port_name
+
+    case "$ingress_class" in
+        nginx)
+            camunda_nginx_grpc_backend_protocol_valid \
+                "$(ingress_annotation "$ingress_name" 'nginx\.ingress\.kubernetes\.io/backend-protocol')"
+            return
+            ;;
+        contour) ;;
+        *) return 1 ;;
+    esac
+
+    while IFS="|" read -r service_name port_number port_name; do
+        [ -n "$service_name" ] || continue
+        IFS="|" read -r port_number port_name <<<"$(service_port_pair "$service_name" "$port_number" "$port_name")"
+        if camunda_contour_upstream_protocol_covers_port \
+            "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2c')" \
+            "$port_number" "$port_name" ||
+            camunda_contour_upstream_protocol_covers_port \
+                "$(service_annotation "$service_name" 'projectcontour\.io/upstream-protocol\.h2')" \
+                "$port_number" "$port_name"; then
+            return 0
+        fi
+    done <<EOF
+$(ingress_backends "$ingress_name")
+EOF
+
+    return 1
+}
+
 check_ingress_class_and_config() {
     echo "[INFO] Check ingress and associated configuration"
 
@@ -174,13 +253,16 @@ check_ingress_class_and_config() {
             echo "[OK] Ingress class for $ingress_name is configured correctly with $ingress_class."
         fi
 
-        if kubectl get ingress -n "$NAMESPACE" "$ingress_name" -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol}' | grep -q "GRPC"; then
+        if ingress_declares_grpc_upstream "$ingress_name" "$ingress_class"; then
+            echo "[OK] Ingress $ingress_name declares a gRPC upstream for the $ingress_class controller."
             annotation_found=1
         fi
     done
 
     if [ "$annotation_found" -eq 0 ]; then
-        echo "[FAIL] None of the ingresses contain the annotation nginx.ingress.kubernetes.io/backend-protocol: GRPC, which is required for zeebe ingress." >&2
+        echo "[FAIL] None of the ingresses declare a gRPC upstream, which is required for the zeebe ingress." >&2
+        echo "With ingress-nginx, the zeebe ingress must carry nginx.ingress.kubernetes.io/backend-protocol: GRPC (GRPCS for a TLS upstream)." >&2
+        echo "With Contour, the service behind it must carry projectcontour.io/upstream-protocol.h2c (.h2 for a TLS upstream) listing the gRPC port." >&2
         SCRIPT_STATUS_OUTPUT=5
     fi
 }
