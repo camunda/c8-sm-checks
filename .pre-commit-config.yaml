@@ -84,3 +84,10 @@ repos:
             entry: test/kube/ingress-grpc.test.sh
             pass_filenames: false
             files: ^(checks/kube/lib/|test/kube/)
+
+          - id: keycloak-mode-tests
+            name: Keycloak deployment mode resolution tests
+            language: script
+            entry: test/kube/keycloak-mode.test.sh
+            pass_filenames: false
+            files: ^(checks/kube/lib/|test/kube/)
