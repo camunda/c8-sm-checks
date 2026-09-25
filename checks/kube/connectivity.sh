@@ -14,8 +14,20 @@ source "$DIR_NAME/lib/ingress-grpc.sh" || {
     exit 1
 }
 
+# shellcheck source=checks/kube/lib/exec-bound.sh
+# shellcheck source-path=SCRIPTDIR
+source "$DIR_NAME/lib/exec-bound.sh" || {
+    echo 1>&2 "Error: unable to load $DIR_NAME/lib/exec-bound.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
+    exit 1
+}
+
 # Define default variables
 NAMESPACE="${NAMESPACE:-""}"
+# Wall-clock bound for a single `kubectl exec` probe. The probe itself is a TCP
+# connect with a 2s in-container timeout, so anything approaching this value is
+# a wedged exec stream rather than a slow service.
+CAMUNDA_EXEC_TIMEOUT="${CAMUNDA_EXEC_TIMEOUT:-15}"
+EXEC_BOUND="$(camunda_exec_bound_prefix "$CAMUNDA_EXEC_TIMEOUT")"
 SKIP_CHECK_INGRESS_CLASS=0
 
 usage() {
@@ -85,9 +97,9 @@ check_services_resolution() {
     for pod in $pods; do
 
         local check_method=""
-        if kubectl exec -n "$NAMESPACE" "$pod" -- which bash &>/dev/null; then
+        if eval "${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- which bash" &>/dev/null; then
             check_method="bash"
-        elif kubectl exec -n "$NAMESPACE" "$pod" -- which nc &>/dev/null; then
+        elif eval "${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- which nc" &>/dev/null; then
             check_method="nc"
         else
             echo "Warning: Neither bash nor nc are available in pod $pod. Skipping service resolution check for this pod." >&2
@@ -120,14 +132,15 @@ check_services_resolution() {
 
             local check_output
             local check_command
+            local check_status
 
             # depending of the available binaries in the container, we use various methods
             case $check_method in
                 bash)
-                    check_command="kubectl exec -n \"$NAMESPACE\" \"$pod\" -- timeout 2 bash -c '</dev/tcp/$service_name/$service_port'"
+                    check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- timeout 2 bash -c '</dev/tcp/$service_name/$service_port'"
                     ;;
                 nc)
-                    check_command="kubectl exec -n \"$NAMESPACE\" \"$pod\" -- nc -zv \"$service_name\" \"$service_port\""
+                    check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- nc -zv \"$service_name\" \"$service_port\""
                     ;;
                 *)
                     echo "Error: Unsupported check method \"$check_method\"" >&2
@@ -138,6 +151,15 @@ check_services_resolution() {
             # we use sh to ensure compatibility with most of the container images https://stackoverflow.com/a/14701003
             echo "[INFO] Running command: ${check_command}"
             check_output=$(eval "${check_command}" 2>&1)
+            check_status=$?
+
+            # A killed exec produces no output, and the output-based verdict
+            # below would read that emptiness as success. Classify it first.
+            if camunda_exec_timed_out "$check_status"; then
+                echo "[FAIL] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s: the exec stream never returned" >&2
+                SCRIPT_STATUS_OUTPUT=2
+                continue
+            fi
 
             # We prefer to check the output rather than the exit code as we care about service name resolution, not the flow opening
             # "Invalid argument" is the error of the bash check
