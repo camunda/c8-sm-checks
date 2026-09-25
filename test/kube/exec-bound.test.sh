@@ -67,6 +67,38 @@ run_prefix_case "a different bound is carried through" \
 # An empty prefix leaves the original command untouched.
 PATH='' run_prefix_case "no timeout binary yields no prefix" '' 15
 
+# The prefix is concatenated into a string the caller runs through `eval`, and
+# the duration reaches it from the environment. An unvalidated value is both a
+# silent-failure source -- `timeout` rejects a bad interval with status 125 and
+# a message matching none of the caller's error patterns, which reads as
+# success -- and an injection vector. Fail closed on both.
+run_reject_case() {
+    local name="$1" value="$2"
+    local output status
+
+    output="$(camunda_exec_bound_prefix "$value" timeout 2>/dev/null)"
+    status=$?
+
+    if [[ "$status" -ne 0 && -z "$output" ]]; then
+        printf '[OK] %s\n' "$name"
+    else
+        printf '[FAIL] %s: expected a non-zero status and no prefix, got status %s and %q\n' \
+            "$name" "$status" "$output"
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+
+run_reject_case "a non-numeric duration is rejected" "abc"
+run_reject_case "an empty duration is rejected" ""
+run_reject_case "a shell metacharacter is rejected" "5;rm -rf /"
+run_reject_case "an appended command is rejected" "5 echo INJECTED;"
+run_reject_case "a negative duration is rejected" "-5"
+run_reject_case "a suffix in the middle is rejected" "5s5"
+
+# coreutils accepts a unit suffix, and so do we.
+run_prefix_case "a seconds suffix is accepted" 'timeout 30s ' 30s timeout
+run_prefix_case "a minutes suffix is accepted" 'timeout 2m ' 2m timeout
+
 # 124 is what coreutils timeout reports after killing the command. Anything
 # else is the command's own status and must not be mistaken for a timeout.
 run_status_case "124 is recognised as a timeout" 0 124

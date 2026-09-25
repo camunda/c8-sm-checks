@@ -27,7 +27,10 @@ NAMESPACE="${NAMESPACE:-""}"
 # connect with a 2s in-container timeout, so anything approaching this value is
 # a wedged exec stream rather than a slow service.
 CAMUNDA_EXEC_TIMEOUT="${CAMUNDA_EXEC_TIMEOUT:-15}"
-EXEC_BOUND="$(camunda_exec_bound_prefix "$CAMUNDA_EXEC_TIMEOUT")"
+# Fail closed: the prefix is concatenated into commands run through `eval`, so a
+# value that did not validate must stop the script rather than silently drop the
+# bound or reach `eval` as-is.
+EXEC_BOUND="$(camunda_exec_bound_prefix "$CAMUNDA_EXEC_TIMEOUT")" || exit 1
 SKIP_CHECK_INGRESS_CLASS=0
 
 usage() {

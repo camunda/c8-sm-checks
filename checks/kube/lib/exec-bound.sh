@@ -29,6 +29,25 @@ camunda_timeout_binary() {
     fi
 }
 
+# camunda_exec_duration_valid <duration>
+#
+# Returns 0 when the duration is one coreutils `timeout` accepts: a number with
+# an optional s/m/h/d suffix.
+#
+# The prefix this library builds is concatenated into a string the caller runs
+# through `eval`, and the duration reaches it from the environment. Anything
+# unvalidated there is both a silent-failure source and an injection vector:
+# `timeout` rejects a bad interval with status 125 and a message matching none
+# of the caller's error patterns, which reads as success, and a value such as
+# `5 rm -rf /;` would simply be executed.
+camunda_exec_duration_valid() {
+    case "${1-}" in
+        '' | *[!0-9smhd]* | *[smhd]?*) return 1 ;;
+        *[0-9]*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # camunda_exec_bound_prefix <seconds> [timeout-binary]
 #
 # Echoes the command prefix that bounds an invocation to <seconds>, trailing
@@ -37,9 +56,17 @@ camunda_timeout_binary() {
 # Echoes nothing when no timeout binary is available, so the caller degrades to
 # the previous unbounded behaviour rather than failing outright: a host without
 # coreutils still runs the checks, it just loses the bound.
+#
+# Fails closed on an invalid duration rather than degrading, because that is
+# operator error rather than a property of the host.
 camunda_exec_bound_prefix() {
     local seconds="$1"
     local binary="${2-}"
+
+    if ! camunda_exec_duration_valid "$seconds"; then
+        echo 1>&2 "Error: invalid exec timeout '$seconds'. Expected a number with an optional s/m/h/d suffix, for example 15 or 30s."
+        return 2
+    fi
 
     [ -n "$binary" ] || binary="$(camunda_timeout_binary)"
     [ -n "$binary" ] || return 0
