@@ -158,8 +158,19 @@ check_services_resolution() {
 
             # A killed exec produces no output, and the output-based verdict
             # below would read that emptiness as success. Classify it first.
+            #
+            # The wedge is intermittent rather than terminal: measured over 292
+            # probes, a healthy one returns in 1.3s (max 1.83s) and a wedged one
+            # never returns, with nothing in between. So a second attempt is
+            # worth one bound's wait, while a longer bound would buy nothing.
             if camunda_exec_timed_out "$check_status"; then
-                echo "[FAIL] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s: the exec stream never returned" >&2
+                echo "[WARN] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s; retrying once" >&2
+                check_output=$(eval "${check_command}" 2>&1)
+                check_status=$?
+            fi
+
+            if camunda_exec_timed_out "$check_status"; then
+                echo "[FAIL] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s on two consecutive attempts: the exec stream never returned" >&2
                 SCRIPT_STATUS_OUTPUT=2
                 continue
             fi
