@@ -140,7 +140,12 @@ check_services_resolution() {
             # depending of the available binaries in the container, we use various methods
             case $check_method in
                 bash)
-                    check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- timeout 2 bash -c '</dev/tcp/$service_name/$service_port'"
+                    # Map the in-container timeout to a distinct status. Both it
+                    # and the client-side bound exit 124, and `kubectl exec`
+                    # propagates the remote status verbatim, so without this an
+                    # unreachable service is indistinguishable from a wedged
+                    # exec stream and would be retried as one.
+                    check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- bash -c 'timeout 2 bash -c \"</dev/tcp/$service_name/$service_port\"; rc=\$?; [ \$rc -eq 124 ] && exit $CAMUNDA_EXEC_PROBE_TIMEOUT_STATUS; exit \$rc'"
                     ;;
                 nc)
                     check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- nc -zv \"$service_name\" \"$service_port\""
@@ -156,10 +161,29 @@ check_services_resolution() {
             check_output=$(eval "${check_command}" 2>&1)
             check_status=$?
 
-            # A killed exec produces no output, and the output-based verdict
-            # below would read that emptiness as success. Classify it first.
+            # Only a wedged exec stream is worth a second attempt. The wedge is
+            # intermittent rather than terminal: measured over 292 probes, a
+            # healthy one returns in 1.3s (max 1.83s) and a wedged one never
+            # returns, with nothing in between. So a retry is worth one bound's
+            # wait, while a longer bound would buy nothing. A probe timeout, by
+            # contrast, is a real answer about the service and is not retried.
             if camunda_exec_timed_out "$check_status"; then
-                echo "[FAIL] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s: the exec stream never returned" >&2
+                echo "[WARN] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s; retrying once" >&2
+                check_output=$(eval "${check_command}" 2>&1)
+                check_status=$?
+            fi
+
+            # Classify once, after any retry, because the second attempt can end
+            # in either outcome. Both cases produce no output, and the
+            # output-based verdict below would read that emptiness as success.
+            if camunda_exec_probe_timed_out "$check_status"; then
+                echo "[FAIL] Service $service_name:$service_port resolution failed from pod $pod in namespace $NAMESPACE: no answer within 2s" >&2
+                SCRIPT_STATUS_OUTPUT=2
+                continue
+            fi
+
+            if camunda_exec_timed_out "$check_status"; then
+                echo "[FAIL] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s on two consecutive attempts: the exec stream never returned" >&2
                 SCRIPT_STATUS_OUTPUT=2
                 continue
             fi

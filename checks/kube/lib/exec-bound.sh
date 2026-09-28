@@ -74,6 +74,25 @@ camunda_exec_bound_prefix() {
     printf '%s %s ' "$binary" "$seconds"
 }
 
+# CAMUNDA_EXEC_PROBE_TIMEOUT_STATUS
+#
+# Status the in-container probe reports when its own `timeout` fires, i.e. the
+# service did not answer. It exists only to keep that case distinguishable from
+# the client-side deadline: coreutils `timeout` exits 124 on both sides of the
+# exec, and `kubectl exec` propagates the remote status verbatim, so without a
+# distinct value an unreachable service and a wedged exec stream are the same
+# number. 66 is outside the ranges bash reserves for signals and builtins.
+CAMUNDA_EXEC_PROBE_TIMEOUT_STATUS=66
+
+# camunda_exec_probe_timed_out <status>
+#
+# Returns 0 when the in-container probe timed out, meaning the service did not
+# answer. That is a resolution failure, not a wedged exec, so it must not be
+# retried as one.
+camunda_exec_probe_timed_out() {
+    [ "${1:-0}" -eq "$CAMUNDA_EXEC_PROBE_TIMEOUT_STATUS" ]
+}
+
 # camunda_exec_timed_out <status>
 #
 # Returns 0 when the exit status is the one coreutils `timeout` reports after
