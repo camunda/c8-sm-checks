@@ -161,26 +161,25 @@ check_services_resolution() {
             check_output=$(eval "${check_command}" 2>&1)
             check_status=$?
 
-            # A killed exec produces no output, and the output-based verdict
-            # below would read that emptiness as success. Classify it first.
-            #
-            # The wedge is intermittent rather than terminal: measured over 292
-            # probes, a healthy one returns in 1.3s (max 1.83s) and a wedged one
-            # never returns, with nothing in between. So a second attempt is
-            # worth one bound's wait, while a longer bound would buy nothing.
-            # The probe's own timeout means the service did not answer. That is
-            # a resolution failure, so report it as one instead of retrying it
-            # as a wedge.
-            if camunda_exec_probe_timed_out "$check_status"; then
-                echo "[FAIL] Service $service_name:$service_port resolution failed from pod $pod in namespace $NAMESPACE: no answer within 2s" >&2
-                SCRIPT_STATUS_OUTPUT=2
-                continue
-            fi
-
+            # Only a wedged exec stream is worth a second attempt. The wedge is
+            # intermittent rather than terminal: measured over 292 probes, a
+            # healthy one returns in 1.3s (max 1.83s) and a wedged one never
+            # returns, with nothing in between. So a retry is worth one bound's
+            # wait, while a longer bound would buy nothing. A probe timeout, by
+            # contrast, is a real answer about the service and is not retried.
             if camunda_exec_timed_out "$check_status"; then
                 echo "[WARN] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s; retrying once" >&2
                 check_output=$(eval "${check_command}" 2>&1)
                 check_status=$?
+            fi
+
+            # Classify once, after any retry, because the second attempt can end
+            # in either outcome. Both cases produce no output, and the
+            # output-based verdict below would read that emptiness as success.
+            if camunda_exec_probe_timed_out "$check_status"; then
+                echo "[FAIL] Service $service_name:$service_port resolution failed from pod $pod in namespace $NAMESPACE: no answer within 2s" >&2
+                SCRIPT_STATUS_OUTPUT=2
+                continue
             fi
 
             if camunda_exec_timed_out "$check_status"; then
