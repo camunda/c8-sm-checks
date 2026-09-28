@@ -99,9 +99,35 @@ run_reject_case "a suffix in the middle is rejected" "5s5"
 run_prefix_case "a seconds suffix is accepted" 'timeout 30s ' 30s timeout
 run_prefix_case "a minutes suffix is accepted" 'timeout 2m ' 2m timeout
 
+# run_probe_status_case <name> <expected status> <input status>
+run_probe_status_case() {
+    local name="$1" expected_status="$2" input="$3"
+    local status
+
+    camunda_exec_probe_timed_out "$input"
+    status=$?
+
+    if [[ "$status" -eq "$expected_status" ]]; then
+        printf '[OK] %s\n' "$name"
+    else
+        printf '[FAIL] %s: expected exit status %s, got %s\n' "$name" "$expected_status" "$status"
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+
+# Both timeouts in the probe exit 124 -- the in-container one and the
+# client-side bound -- and `kubectl exec` propagates the remote status
+# verbatim. The in-container case is remapped so an unreachable service cannot
+# masquerade as a wedged exec stream and get retried as one.
+run_probe_status_case "the probe timeout status is recognised" 0 66
+run_probe_status_case "a client-side deadline is not a probe timeout" 1 124
+run_probe_status_case "success is not a probe timeout" 1 0
+run_probe_status_case "a failed probe is not a probe timeout" 1 1
+
 # 124 is what coreutils timeout reports after killing the command. Anything
 # else is the command's own status and must not be mistaken for a timeout.
 run_status_case "124 is recognised as a timeout" 0 124
+run_status_case "the probe timeout status is not a client-side timeout" 1 66
 run_status_case "success is not a timeout" 1 0
 run_status_case "a failed probe is not a timeout" 1 1
 run_status_case "SIGKILL of the command itself is not a timeout" 1 137

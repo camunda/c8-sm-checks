@@ -140,7 +140,12 @@ check_services_resolution() {
             # depending of the available binaries in the container, we use various methods
             case $check_method in
                 bash)
-                    check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- timeout 2 bash -c '</dev/tcp/$service_name/$service_port'"
+                    # Map the in-container timeout to a distinct status. Both it
+                    # and the client-side bound exit 124, and `kubectl exec`
+                    # propagates the remote status verbatim, so without this an
+                    # unreachable service is indistinguishable from a wedged
+                    # exec stream and would be retried as one.
+                    check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- bash -c 'timeout 2 bash -c \"</dev/tcp/$service_name/$service_port\"; rc=\$?; [ \$rc -eq 124 ] && exit $CAMUNDA_EXEC_PROBE_TIMEOUT_STATUS; exit \$rc'"
                     ;;
                 nc)
                     check_command="${EXEC_BOUND}kubectl exec -n \"$NAMESPACE\" \"$pod\" -- nc -zv \"$service_name\" \"$service_port\""
@@ -163,6 +168,15 @@ check_services_resolution() {
             # probes, a healthy one returns in 1.3s (max 1.83s) and a wedged one
             # never returns, with nothing in between. So a second attempt is
             # worth one bound's wait, while a longer bound would buy nothing.
+            # The probe's own timeout means the service did not answer. That is
+            # a resolution failure, so report it as one instead of retrying it
+            # as a wedge.
+            if camunda_exec_probe_timed_out "$check_status"; then
+                echo "[FAIL] Service $service_name:$service_port resolution failed from pod $pod in namespace $NAMESPACE: no answer within 2s" >&2
+                SCRIPT_STATUS_OUTPUT=2
+                continue
+            fi
+
             if camunda_exec_timed_out "$check_status"; then
                 echo "[WARN] Service $service_name:$service_port probe from pod $pod in namespace $NAMESPACE timed out after ${CAMUNDA_EXEC_TIMEOUT}s; retrying once" >&2
                 check_output=$(eval "${check_command}" 2>&1)
