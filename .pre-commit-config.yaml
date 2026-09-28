@@ -84,3 +84,10 @@ repos:
             entry: test/kube/ingress-grpc.test.sh
             pass_filenames: false
             files: ^(checks/kube/lib/|test/kube/)
+
+          - id: exec-bound-tests
+            name: kubectl exec client-side bound tests
+            language: script
+            entry: test/kube/exec-bound.test.sh
+            pass_filenames: false
+            files: ^(checks/kube/lib/|test/kube/)
