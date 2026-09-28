@@ -115,10 +115,10 @@ run_probe_status_case() {
     fi
 }
 
-# Both timeouts in the probe exit 124 -- the in-container one and the
-# client-side bound -- and `kubectl exec` propagates the remote status
-# verbatim. The in-container case is remapped so an unreachable service cannot
-# masquerade as a wedged exec stream and get retried as one.
+# Inside the container, `timeout 2` exits 124 when the service does not answer,
+# and `kubectl exec` would propagate that verbatim. The probe wrapper remaps it
+# to 66 before exiting, so the caller sees 66 for an unreachable service and
+# 124 only from the client-side bound, i.e. a wedged exec stream.
 run_probe_status_case "the probe timeout status is recognised" 0 66
 run_probe_status_case "a client-side deadline is not a probe timeout" 1 124
 run_probe_status_case "success is not a probe timeout" 1 0
