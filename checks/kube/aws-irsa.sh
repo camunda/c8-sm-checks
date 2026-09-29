@@ -827,7 +827,7 @@ check_aurora_cluster() {
 # Verify an external, operator-managed Keycloak instead of the subchart-based
 # IRSA checks. This confirms the chart is pointed at an external Keycloak and
 # that this Keycloak is reachable. It is used when
-# global.identity.keycloak.internal=false (Keycloak Operator deployment).
+# the identityKeycloak subchart is disabled or absent (e.g. Keycloak Operator deployment).
 verify_external_keycloak() {
     local keycloak_host keycloak_port keycloak_svc_output
 
@@ -845,7 +845,7 @@ verify_external_keycloak() {
     fi
 
     if [[ -z "$keycloak_host" ]]; then
-        echo "[FAIL] External Keycloak is enabled (global.identity.keycloak.internal=false) but global.identity.keycloak.url.host is not set; the chart cannot reach Keycloak." 1>&2
+        echo "[FAIL] The identityKeycloak subchart is not deployed but global.identity.keycloak.url.host is not set; the chart cannot reach Keycloak." 1>&2
         SCRIPT_STATUS_OUTPUT=86
         return
     fi
