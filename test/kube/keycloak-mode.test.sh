@@ -71,6 +71,15 @@ assert_equals "an explicit internal:true does not flip the answer either" \
         '{"global":{"identity":{"keycloak":{"internal":true}}}}' \
         "$DEFAULTS_8_10")"
 
+# An explicit false must not fall through to a true chart default.
+assert_equals "an explicit enabled:false wins over a true chart default" \
+    "false" \
+    "$(camunda_keycloak_subchart_enabled '{"identityKeycloak":{"enabled":false}}' '{"identityKeycloak":{"enabled":true}}')"
+
+assert_equals "a true chart default applies when the release overrides nothing" \
+    "true" \
+    "$(camunda_keycloak_subchart_enabled '{}' '{"identityKeycloak":{"enabled":true}}')"
+
 if [[ "$FAILURES" -gt 0 ]]; then
     printf '\n%s test(s) failed.\n' "$FAILURES"
     exit 1

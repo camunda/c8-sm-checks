@@ -20,16 +20,13 @@
 # false in 8.8, 8.9 and 8.10 alike, so it says nothing about how Keycloak is
 # deployed. See camunda/c8-sm-checks#352.
 #
-# The filter is an explicit if/else rather than `//`, which collapses a boolean
-# false into its fallback and would discard the value this decision depends on.
+# Only a key absent from the release values falls back to the chart defaults:
+# an explicit `false` is the user's decision and must win over a `true` default.
 camunda_keycloak_subchart_enabled() {
     local values_json="$1" defaults_json="$2" enabled
-    local filter='if .identityKeycloak.enabled == true then "true" else "false" end'
-
-    enabled=$(echo "$values_json" | jq -r "$filter")
-    if [[ "$enabled" != "true" ]]; then
-        enabled=$(echo "$defaults_json" | jq -r "$filter")
+    enabled=$(echo "$values_json" | jq -r '.identityKeycloak.enabled')
+    if [[ "$enabled" == "null" ]]; then
+        enabled=$(echo "$defaults_json" | jq -r '.identityKeycloak.enabled')
     fi
-
-    echo "$enabled"
+    [[ "$enabled" == "true" ]] && echo "true" || echo "false"
 }

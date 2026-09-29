@@ -884,6 +884,15 @@ check_irsa_aurora_requirements() {
             enabled_value=$(echo "$HELM_CHART_DEFAULT_VALUES" | jq -r --arg comp "$component" '.[$comp].enabled')
         fi
 
+        # An operator-managed Keycloak has no identityKeycloak subchart, hence
+        # no externalDatabase, camunda/keycloak image or KEYCLOAK_* IRSA env
+        # vars: verify the external Keycloak instead of the subchart checks.
+        if [[ "$component" == "identityKeycloak" && "$KEYCLOAK_OPERATOR_MANAGED" == "true" ]]; then
+            echo "[INFO] identityKeycloak subchart is not deployed; skipping subchart-based Aurora/IRSA checks and verifying the external Keycloak instead."
+            verify_external_keycloak
+            continue
+        fi
+
         if [[ "$enabled_value" == "false" ]]; then
             echo "[INFO] Component $component is disabled, skipping verification."
             continue
@@ -891,17 +900,6 @@ check_irsa_aurora_requirements() {
 
         case "$component" in
             "identityKeycloak")
-                # When Keycloak is operator-managed (external), the
-                # identityKeycloak subchart is not deployed: there is no
-                # externalDatabase configuration, no camunda/keycloak image and
-                # no KEYCLOAK_* IRSA env vars to verify. The operator manages its
-                # own database connection, so verify the external Keycloak
-                # instead of running the subchart-based IRSA checks.
-                if [[ "$KEYCLOAK_OPERATOR_MANAGED" == "true" ]]; then
-                    echo "[INFO] identityKeycloak is operator-managed (global.identity.keycloak.internal=false); skipping subchart-based Aurora/IRSA checks and verifying the external Keycloak instead."
-                    verify_external_keycloak
-                    continue
-                fi
 
                 # Retrieve keycloak_enabled setting from HELM_CHART_VALUES, or fallback to HELM_CHART_DEFAULT_VALUES
                 keycloak_enabled=$(echo "$HELM_CHART_VALUES" | jq -r ".${component}.postgresql.enabled")
