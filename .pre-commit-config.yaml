@@ -92,6 +92,13 @@ repos:
             pass_filenames: false
             files: ^(checks/kube/lib/|test/kube/)
 
+          - id: service-endpoints-tests
+            name: connectivity sweep service skip tests
+            language: script
+            entry: test/kube/service-endpoints.test.sh
+            pass_filenames: false
+            files: ^(checks/kube/lib/|test/kube/)
+
           - id: keycloak-mode-tests
             name: Keycloak deployment mode resolution tests
             language: script
