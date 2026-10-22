@@ -21,6 +21,13 @@ source "$DIR_NAME/lib/exec-bound.sh" || {
     exit 1
 }
 
+# shellcheck source=checks/kube/lib/service-endpoints.sh
+# shellcheck source-path=SCRIPTDIR
+source "$DIR_NAME/lib/service-endpoints.sh" || {
+    echo 1>&2 "Error: unable to load $DIR_NAME/lib/service-endpoints.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
+    exit 1
+}
+
 # Define default variables
 NAMESPACE="${NAMESPACE:-""}"
 # Wall-clock bound for a single `kubectl exec` probe. The probe itself is a TCP
@@ -96,6 +103,20 @@ check_services_resolution() {
     echo "[INFO] Running command: ${services_command}"
     services=$(eval "${services_command}")
 
+    # Services with ready endpoints, listed once for the whole sweep rather than
+    # per pod and service, so the services without any can be skipped below.
+    local ready_services
+    local endpoints_command
+    local endpoints_known=1
+    endpoints_command="kubectl get endpointslices -n \"$NAMESPACE\" -o jsonpath='${CAMUNDA_ENDPOINTSLICE_READY_JSONPATH}'"
+    echo "[INFO] Running command: ${endpoints_command}"
+    # Without the list every service would look endpoint-less and be skipped, so
+    # a failed call disables the skip instead; pipefail surfaces kubectl's status.
+    if ! ready_services=$(eval "${endpoints_command}" | camunda_services_with_ready_endpoints); then
+        echo "[WARN] Unable to list EndpointSlices in namespace $NAMESPACE; probing every service regardless of its endpoints" >&2
+        endpoints_known=0
+    fi
+
     # check service resolution for each pod
     for pod in $pods; do
 
@@ -126,8 +147,15 @@ check_services_resolution() {
             # rollout in progress rather than a connectivity problem. Every
             # workload that owns a headless service is also fronted by a regular
             # service, so skipping these loses no coverage.
-            if [ "$service_cluster_ip" = "None" ]; then
+            if camunda_service_is_headless "$service_cluster_ip"; then
                 echo "[INFO] Skipping headless service $service_name:$service_port (no cluster IP; resolution depends on ready endpoints)"
+                continue
+            fi
+
+            # A virtual IP with nothing behind it gives a timing-dependent
+            # answer unrelated to resolution, see lib/service-endpoints.sh.
+            if [ "$endpoints_known" -eq 1 ] && camunda_service_lacks_ready_endpoints "$service_cluster_ip" "$service_name" "$ready_services"; then
+                echo "[INFO] Skipping service $service_name:$service_port (no ready endpoints; a TCP probe cannot answer)"
                 continue
             fi
 
