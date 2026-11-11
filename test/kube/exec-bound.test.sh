@@ -18,6 +18,7 @@ TEST_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # shellcheck source=../../checks/kube/lib/exec-bound.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$TEST_DIR/../../checks/kube/lib/exec-bound.sh"
 
 FAILURES=0

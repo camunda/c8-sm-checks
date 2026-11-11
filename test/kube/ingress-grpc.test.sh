@@ -18,6 +18,7 @@ TEST_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # shellcheck source=../../checks/kube/lib/ingress-grpc.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$TEST_DIR/../../checks/kube/lib/ingress-grpc.sh"
 
 FAILURES=0

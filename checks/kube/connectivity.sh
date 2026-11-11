@@ -9,6 +9,7 @@ LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # shellcheck source=checks/kube/lib/ingress-grpc.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$DIR_NAME/lib/ingress-grpc.sh" || {
     echo 1>&2 "Error: unable to load $DIR_NAME/lib/ingress-grpc.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
     exit 1
@@ -16,6 +17,7 @@ source "$DIR_NAME/lib/ingress-grpc.sh" || {
 
 # shellcheck source=checks/kube/lib/exec-bound.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$DIR_NAME/lib/exec-bound.sh" || {
     echo 1>&2 "Error: unable to load $DIR_NAME/lib/exec-bound.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
     exit 1
@@ -23,6 +25,7 @@ source "$DIR_NAME/lib/exec-bound.sh" || {
 
 # shellcheck source=checks/kube/lib/service-endpoints.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$DIR_NAME/lib/service-endpoints.sh" || {
     echo 1>&2 "Error: unable to load $DIR_NAME/lib/service-endpoints.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
     exit 1

@@ -10,6 +10,7 @@ LVL_1_SCRIPT_NAME="$DIR_NAME/$SCRIPT_NAME"
 
 # shellcheck source=checks/kube/lib/aws-irsa-opensearch.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$DIR_NAME/lib/aws-irsa-opensearch.sh" || {
     echo 1>&2 "Error: unable to load $DIR_NAME/lib/aws-irsa-opensearch.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
     exit 1
@@ -17,6 +18,7 @@ source "$DIR_NAME/lib/aws-irsa-opensearch.sh" || {
 
 # shellcheck source=checks/kube/lib/keycloak-mode.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$DIR_NAME/lib/keycloak-mode.sh" || {
     echo 1>&2 "Error: unable to load $DIR_NAME/lib/keycloak-mode.sh. Run this script from a checkout of the repository so that checks/kube/lib/ is present. Aborting."
     exit 1

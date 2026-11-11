@@ -15,6 +15,7 @@ TEST_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # shellcheck source=../../checks/kube/lib/aws-irsa-opensearch.sh
 # shellcheck source-path=SCRIPTDIR
+# shellcheck disable=SC1091 # lib file is linted as its own input
 source "$TEST_DIR/../../checks/kube/lib/aws-irsa-opensearch.sh"
 
 command -v jq >/dev/null 2>&1 || { echo 1>&2 "Error: jq is required but not installed. Aborting."; exit 1; }
