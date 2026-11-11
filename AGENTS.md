@@ -26,7 +26,7 @@ No path needs a review from a specific team. The repository has no `CODEOWNERS` 
 
 - The five check scripts run alone from a shell against a live installation. No CI job runs them.
 - The kube checks use the current `kubectl` context. `deployment.sh` and `aws-irsa.sh` also call `helm`. `aws-irsa.sh` also calls the AWS CLI.
-- `aws-irsa.sh` reads the release values with `helm get values` and the chart defaults from the Helm repository `camunda`. For a `0.0.0` chart, or when that fails, it reads them from camunda/camunda-platform-helm on GitHub.
+- `aws-irsa.sh` reads the release values with `helm get values` and the chart defaults from the Helm repository `camunda`. For a `0.0.0` chart, or when `helm show values` fails, it reads them from camunda/camunda-platform-helm on GitHub.
 - By default `aws-irsa.sh` starts Jobs with the image `amazonlinux:latest` in the namespace. Option `-s` turns this off.
 - For gRPC, `checks/zeebe/connectivity.sh` downloads `gateway.proto` from camunda/camunda into the current folder when `-f` gives no file.
 - `connectivity.sh` and `aws-irsa.sh` in `checks/kube/` source `checks/kube/lib/`. The tests in `test/kube/` source the same files and need no cluster.
