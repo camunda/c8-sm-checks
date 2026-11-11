@@ -20,7 +20,7 @@ No path needs a review from a specific team. The repository has no `CODEOWNERS` 
 - `justfile`: `just install-tooling` installs the tools of `.tool-versions` with asdf.
 - `MAINTENANCE.md`: release and maintenance steps.
 - `.gitignore`: ignores `gateway.proto`, which `checks/zeebe/connectivity.sh` downloads.
-- `README.md` and `LICENSE` (MIT).
+- `README.md`: usage of each check. `LICENSE`: Apache License 2.0.
 
 ## Architecture
 
