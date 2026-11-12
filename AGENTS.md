@@ -25,13 +25,13 @@ No path needs a review from a specific team. The repository has no `CODEOWNERS` 
 ## Architecture
 
 - The five check scripts run alone from a shell against a live installation. No CI job runs them.
-- The kube checks use the current `kubectl` context. `deployment.sh` and `aws-irsa.sh` also call `helm`. `aws-irsa.sh` also calls the AWS CLI.
+- The kube checks use the current `kubectl` context. `deployment.sh` and `aws-irsa.sh` also call `helm`. `aws-irsa.sh` also calls the AWS CLI, `jq` and `yq`.
 - `aws-irsa.sh` reads the release values with `helm get values` and the chart defaults from the Helm repository `camunda`. For a `0.0.0` chart, or when `helm show values` fails, it reads them from camunda/camunda-platform-helm on GitHub.
 - By default `aws-irsa.sh` starts Jobs with the image `amazonlinux:latest` in the namespace. Option `-s` turns this off.
 - For gRPC, `checks/zeebe/connectivity.sh` downloads `gateway.proto` from camunda/camunda into the current folder when `-f` gives no file.
 - `connectivity.sh` and `aws-irsa.sh` in `checks/kube/` source `checks/kube/lib/`. The tests in `test/kube/` source the same files and need no cluster.
-- `lint.yml` calls `lint-global.yml` of camunda/infraex-common-config on each PR and push to `main`. When `renovate[bot]` or `smx-misc[bot]` starts the run on a PR, it commits the hook fixes to the PR branch.
-- `links.yml` runs on each push, each month and on PRs that change it. A failed scheduled run opens an issue and posts to Slack.
+- `lint.yml` calls `lint-global.yml` of camunda/infraex-common-config on each PR and push to `main`, or manually. When `renovate[bot]` or `smx-misc[bot]` starts the run on a PR, it commits the hook fixes to the PR branch.
+- `links.yml` runs on each push, each month, on PRs that change it, or manually. A failed scheduled run opens an issue and posts to Slack.
 - `crev-review.yml` calls `crev-review-global.yml` of camunda/infraex-common-config when a PR comment is `/crev` or starts with `/crev `.
 
 ## Commit rules
@@ -49,4 +49,4 @@ No path needs a review from a specific team. The repository has no `CODEOWNERS` 
 - lychee with `-c ./lychee-links.toml` over `*.md` and `./**/*.md`: `links.yml`.
 - The `todos` CLI on the lines that a PR adds: `internal_global_pr_todo_checker.yml`, through `todo-checker-global.yml` of camunda/infraex-common-config.
 - `.tool-versions` pins `pre-commit` and `just`. `lint-global.yml` fails when `pre-commit` has a different version. `.pre-commit-config.yaml` pins each hook repository with `rev`. The `actionlint-docker` hook needs Docker.
-- No file pins `jq` or lychee for a local run.
+- No file pins `jq`, `yq` or lychee for a local run.
