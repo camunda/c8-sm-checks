@@ -45,6 +45,7 @@ No path needs a review from a specific team. The repository has no `CODEOWNERS` 
 - `pre-commit run --all-files`: `lint.yml`, through `lint-global.yml`. It runs each hook of `.pre-commit-config.yaml` except `conventional-pre-commit`: the `pre-commit-hooks` checks, `actionlint`, `zizmor`, `renovate-config-validator`, `shellcheck`, `yamllint`, `yamlfmt` and `action-pin-spacing`.
 - The unit tests `test/kube/*.test.sh` are local hooks in the same run. Run one with `./test/kube/<name>.test.sh`. The tests of `aws-irsa-opensearch` and `keycloak-mode` need `jq`.
 - The `renovate annotations` job of `lint-global.yml` checks the Renovate annotation comments against the shared preset: `lint.yml`.
+- `lint / baseline`: the central hook list of camunda/infraex-common-config ([Baseline](https://github.com/camunda/infraex-common-config/blob/main/README.md#baseline)). Local run: clone that repository into `.infraex-common-config`, then run `pre-commit run --config .infraex-common-config/baseline/.pre-commit-config.yaml --all-files`. Do not stage that folder.
 - lychee with `-c ./lychee-links.toml` over `*.md` and `./**/*.md`: `links.yml`.
 - The `todos` CLI on the lines that a PR adds: `internal_global_pr_todo_checker.yml`, through `todo-checker-global.yml` of camunda/infraex-common-config.
 - `.tool-versions` pins `pre-commit` and `just`. `lint-global.yml` fails when `pre-commit` has a different version. `.pre-commit-config.yaml` pins each hook repository with `rev`. The `actionlint-docker` hook needs Docker.
