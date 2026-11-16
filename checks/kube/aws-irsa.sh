@@ -569,7 +569,7 @@ check_connectivity_with_nmap() {
     echo "[INFO] Creating job '$job_name' to check connectivity for component=$component to host=$target_host on port=$target_port."
 
     # Create the Kubernetes job YAML and apply it
-    cat <<EOF | kubectl apply -f -
+    if ! cat <<EOF | kubectl apply -f -; then
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -584,10 +584,6 @@ spec:
         command: ["/bin/bash", "-c", "yum install -y nmap && nmap -Pn -p $target_port $target_host"]
       restartPolicy: Never
 EOF
-
-    # Check for errors in job creation
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component) Failed to create job $job_name." 1>&2
         SCRIPT_STATUS_OUTPUT=41
         return $SCRIPT_STATUS_OUTPUT
@@ -1366,7 +1362,7 @@ get_aws_identity_from_job() {
     job_name="aws-identity-check-$(echo "$component" | tr '[:upper:]' '[:lower:]')"
 
     echo "[INFO] Creating job '$job_name' with service account '$service_account_name' to check AWS identity of component=$component."
-    cat <<EOF | kubectl apply -f -
+    if ! cat <<EOF | kubectl apply -f -; then
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -1382,10 +1378,6 @@ spec:
         command: ["/bin/bash", "-c", "yum install -y awscli && aws sts get-caller-identity"]
       restartPolicy: Never
 EOF
-
-    # Check for errors in job creation
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to create job $job_name." 1>&2
         SCRIPT_STATUS_OUTPUT=130
         return $SCRIPT_STATUS_OUTPUT
