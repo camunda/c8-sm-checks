@@ -320,10 +320,7 @@ get_helm_chart_default_values() {
 
         helm_values_command="curl -fsSL \"$github_url\" | yq eval -o=json -"
         echo "[INFO] Running command: ${helm_values_command}"
-        HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1)
-
-        # shellcheck disable=SC2181
-        if [ $? -eq 0 ]; then
+        if HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1); then
             echo "[OK] Retrieved default values from GitHub."
         else
             echo "[FAIL] Failed to retrieve default values from GitHub: $HELM_CHART_DEFAULT_VALUES" 1>&2
@@ -340,10 +337,7 @@ get_helm_chart_default_values() {
         # Add the Camunda Helm repository
         helm_repo_command="helm repo add camunda https://helm.camunda.io"
         echo "[INFO] Running command: ${helm_repo_command}"
-        helm_repo_output=$(eval "$helm_repo_command" 2>&1)
-
-        # shellcheck disable=SC2181
-        if [ $? -eq 0 ]; then
+        if helm_repo_output=$(eval "$helm_repo_command" 2>&1); then
             echo "[OK] Added Helm repository."
         else
             echo "[FAIL] Failed to add Helm repository: $helm_repo_output" 1>&2
@@ -353,10 +347,7 @@ get_helm_chart_default_values() {
         # Update the Helm repository
         helm_update_command="helm repo update"
         echo "[INFO] Running command: ${helm_update_command}"
-        helm_update_output=$(eval "$helm_update_command" 2>&1)
-
-        # shellcheck disable=SC2181
-        if [ $? -eq 0 ]; then
+        if helm_update_output=$(eval "$helm_update_command" 2>&1); then
             echo "[OK] Updated Helm repository."
         else
             echo "[FAIL] Failed to update Helm repository: $helm_update_output" 1>&2
@@ -366,10 +357,7 @@ get_helm_chart_default_values() {
         # Retrieve the default values and store them in a variable
         helm_values_command="helm show values camunda/$chart_name --version \"$version\" | yq eval -o=json -"
         echo "[INFO] Running command: ${helm_values_command}"
-        HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1)
-
-        # shellcheck disable=SC2181
-        if [ $? -eq 0 ]; then
+        if HELM_CHART_DEFAULT_VALUES=$(eval "$helm_values_command" 2>&1); then
             echo "[OK] Retrieved default values from the chart."
         else
             echo "[WARNING] Failed to retrieve default values from Helm repo for version $version (chart may not be published yet). Falling back to GitHub." 1>&2
@@ -581,7 +569,7 @@ check_connectivity_with_nmap() {
     echo "[INFO] Creating job '$job_name' to check connectivity for component=$component to host=$target_host on port=$target_port."
 
     # Create the Kubernetes job YAML and apply it
-    cat <<EOF | kubectl apply -f -
+    if ! cat <<EOF | kubectl apply -f -; then
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -596,10 +584,6 @@ spec:
         command: ["/bin/bash", "-c", "yum install -y nmap && nmap -Pn -p $target_port $target_host"]
       restartPolicy: Never
 EOF
-
-    # Check for errors in job creation
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component) Failed to create job $job_name." 1>&2
         SCRIPT_STATUS_OUTPUT=41
         return $SCRIPT_STATUS_OUTPUT
@@ -608,10 +592,7 @@ EOF
     # Wait for the job to complete
     wait_command="kubectl wait --for=condition=complete --timeout=60s job/$job_name -n \"$NAMESPACE\""
     echo "[INFO] Running command: $wait_command"
-    eval "$wait_command"
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! eval "$wait_command"; then
         echo "[FAIL] (component=$component) Job $job_name did not complete successfully." 1>&2
         kubectl delete job "$job_name" -n "$NAMESPACE" --grace-period=0 --force >/dev/null 2>&1
         SCRIPT_STATUS_OUTPUT=42
@@ -625,10 +606,7 @@ EOF
     # Delete the job after execution
     delete_command="kubectl delete job \"$job_name\" -n \"$NAMESPACE\" --grace-period=0 --force"
     echo "[INFO] Running command: $delete_command"
-    eval "$delete_command"
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! eval "$delete_command"; then
         echo "[WARN] (component=$component) Failed to delete job $job_name, but it is non-fatal." 1>&2
     fi
 
@@ -1350,10 +1328,7 @@ verify_role_arn() {
 
     aws_iam_get_role_cmd="aws iam get-role --role-name \"$role_name\""
     echo "[INFO] Running command: ${aws_iam_get_role_cmd}"
-    role_output=$(eval "$aws_iam_get_role_cmd")
-
-    # shellcheck disable=SC2181
-    if [ $? -eq 0 ]; then
+    if role_output=$(eval "$aws_iam_get_role_cmd"); then
         echo "[OK] Role ARN $role_arn (component=$component,serviceAccount=$service_account_name) is valid: $role_output"
     else
         echo "[FAIL] Role ARN $role_arn (component=$component,serviceAccount=$service_account_name) is invalid or does not exist." 1>&2
@@ -1387,7 +1362,7 @@ get_aws_identity_from_job() {
     job_name="aws-identity-check-$(echo "$component" | tr '[:upper:]' '[:lower:]')"
 
     echo "[INFO] Creating job '$job_name' with service account '$service_account_name' to check AWS identity of component=$component."
-    cat <<EOF | kubectl apply -f -
+    if ! cat <<EOF | kubectl apply -f -; then
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -1403,10 +1378,6 @@ spec:
         command: ["/bin/bash", "-c", "yum install -y awscli && aws sts get-caller-identity"]
       restartPolicy: Never
 EOF
-
-    # Check for errors in job creation
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to create job $job_name." 1>&2
         SCRIPT_STATUS_OUTPUT=130
         return $SCRIPT_STATUS_OUTPUT
@@ -1416,10 +1387,7 @@ EOF
     # Log and execute the wait command
     wait_command="kubectl wait --for=condition=complete --timeout=60s job/$job_name -n \"$NAMESPACE\""
     echo "[INFO] Running command: $wait_command"
-    eval "$wait_command"
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! eval "$wait_command"; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Job $job_name did not complete successfully." 1>&2
         kubectl delete job "$job_name" -n "$NAMESPACE" --grace-period=0 --force >/dev/null 2>&1
         SCRIPT_STATUS_OUTPUT=131
@@ -1432,19 +1400,13 @@ EOF
     # Log and execute the delete command
     delete_command="kubectl delete job \"$job_name\" -n \"$NAMESPACE\" --grace-period=0 --force"
     echo "[INFO] Running command: $delete_command"
-    eval "$delete_command"
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! eval "$delete_command"; then
         # non-fatal error
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Failed to delete job $job_name." 1>&2
     fi
 
     # Check if the output is valid JSON
-    echo "$output" | jq .
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! echo "$output" | jq .; then
         echo "[FAIL] (component=$component,serviceAccount=$service_account_name) Output of aws sts get identity caller job is not valid JSON." 1>&2
         SCRIPT_STATUS_OUTPUT=132
         return $SCRIPT_STATUS_OUTPUT
@@ -1491,10 +1453,7 @@ verify_rds_permissions() {
     # Fetch the role's attached policies
     role_policies_cmd="aws iam list-attached-role-policies --role-name \"$role_name\""
     echo "[INFO] Running command: ${role_policies_cmd}"
-    attached_policies=$(eval "$role_policies_cmd")
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! attached_policies=$(eval "$role_policies_cmd"); then
         echo "[FAIL] Unable to list attached policies for role ARN $role_arn (component=$component, serviceAccount=$service_account_name)." 1>&2
         SCRIPT_STATUS_OUTPUT=140
         return
@@ -1526,10 +1485,7 @@ verify_rds_permissions() {
         # Fetch the policy document
         policy_document_cmd="aws iam get-policy-version --policy-arn \"$policy_arn\" --version-id \"$policy_version_id\""
         echo "[INFO] Running command: ${policy_document_cmd}"
-        policy_output=$(eval "$policy_document_cmd")
-
-        # shellcheck disable=SC2181
-        if [ $? -ne 0 ]; then
+        if ! policy_output=$(eval "$policy_document_cmd"); then
             echo "[FAIL] Unable to retrieve policy document for policy ARN $policy_arn." 1>&2
             SCRIPT_STATUS_OUTPUT=141
             continue
@@ -1569,10 +1525,7 @@ verify_opensearch_permissions() {
     # Fetch the role's attached policies
     role_policies_cmd="aws iam list-attached-role-policies --role-name \"$role_name\""
     echo "[INFO] Running command: ${role_policies_cmd}"
-    attached_policies=$(eval "$role_policies_cmd")
-
-    # shellcheck disable=SC2181
-    if [ $? -ne 0 ]; then
+    if ! attached_policies=$(eval "$role_policies_cmd"); then
         echo "[FAIL] Unable to list attached policies for role ARN $role_arn (component=$component, serviceAccount=$service_account_name)." 1>&2
         SCRIPT_STATUS_OUTPUT=150
         return
@@ -1592,10 +1545,7 @@ verify_opensearch_permissions() {
         # Fetch the policy document
         policy_document_cmd="aws iam get-policy-version --policy-arn \"$policy_arn\" --version-id \"$policy_version_id\""
         echo "[INFO] Running command: ${policy_document_cmd}"
-        policy_output=$(eval "$policy_document_cmd")
-
-        # shellcheck disable=SC2181
-        if [ $? -ne 0 ]; then
+        if ! policy_output=$(eval "$policy_document_cmd"); then
             echo "[FAIL] Unable to retrieve policy document for policy ARN $policy_arn." 1>&2
             SCRIPT_STATUS_OUTPUT=151
             continue

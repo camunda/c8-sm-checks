@@ -116,7 +116,7 @@ if [ -z "$access_token_response" ]; then
 fi
 
 # extract the token
-  # shellcheck disable=SC2001
+# shellcheck disable=SC2001 # the sed regex keeps a capture group, which ${var//search/replace} cannot express
 token=$(echo "$access_token_response" | sed 's/.*access_token":"\([^"]*\)".*/\1/')
 if [ -z "$token" ]; then
     echo "[FAIL] Failed to extract access token." 1>&2
