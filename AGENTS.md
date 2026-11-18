@@ -12,7 +12,7 @@ No path needs a review from a specific team. The repository has no `CODEOWNERS` 
 - `checks/zeebe/`: `token.sh` gets an OAuth token. `connectivity.sh` calls the Zeebe Gateway over gRPC or REST.
 - `test/`: [test/README.md](test/README.md) and `test/kube/`, one `*.test.sh` unit test for each file in `checks/kube/lib/`.
 - `.github/`: workflows, `renovate.json5` (extends `default.json5` of camunda/infraex-common-config) and `zizmor.yml` (pinning policy of the `zizmor` hook).
-  - `.github/workflows/crev-review.yml`: written by camunda/infraex-terraform from `modules/github-repo-defaults/crev-review.yml`. Change it there.
+  - `.github/workflows/crev-review.yml` and `lint.yml`: created by camunda/infraex-terraform from `modules/github-repo-defaults/`, which does not change them later. Change them here with a PR.
 - `.pre-commit-config.yaml`: the hooks, including the unit tests. `lint.yml` runs them.
 - `.yamllint.yaml`: configuration of the `yamllint` hook.
 - `lychee-links.toml`: configuration of the link check in `links.yml`.
